@@ -36,6 +36,8 @@ Supporting components in the project.
 This program is used to query and update word frequency and breadth statistics and automatically save them to a database. It should be run whenever the words in the database are updated to obtain the word frequency and breadth of that word.
 > 广泛度（覆盖范围）的含义就是这个单词于多少首歌中出现。
 > The breadth of a word refers to how many songs it appears in.
+> 当一个单词的词频和泛度中的任意一个小于3时它会被施加蓝色高亮。
+> 目前使用的词频是去重前的词频。
 ## word_checker.py
 项目的另一核心组件是编辑器，它具备以下功能：
 1.可实时检测输入单词是否正确。
