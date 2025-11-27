@@ -1,8 +1,28 @@
 import sqlite3
 import os
-import re
+from collections import defaultdict
 
-def main():
+def count_word_occurrences(lyric_lower, word_lower):
+    """高效统计单词出现次数（基于字符串查找，比正则更快）"""
+    count = 0
+    start = 0
+    word_len = len(word_lower)
+    lyric_len = len(lyric_lower)
+    while start <= lyric_len - word_len:
+        # 查找单词位置
+        pos = lyric_lower.find(word_lower, start)
+        if pos == -1:
+            break
+        # 检查单词边界（避免部分匹配，如 "apple" 匹配 "applepie"）
+        left_ok = pos == 0 or not lyric_lower[pos-1].isalnum()
+        right_ok = (pos + word_len) == lyric_len or not lyric_lower[pos + word_len].isalnum()
+        if left_ok and right_ok:
+            count += 1
+        # 跳过当前匹配位置，避免重叠匹配
+        start = pos + 1
+    return count
+
+def main(verbose=False):
     # 数据库文件路径
     db_path = os.path.join(os.path.dirname(__file__), 'translated.db')
     
@@ -13,131 +33,136 @@ def main():
     
     conn = None
     try:
-        # 连接到数据库
+        # 连接数据库并优化参数（针对低配电脑，减少磁盘IO）
         conn = sqlite3.connect(db_path)
         cursor = conn.cursor()
+        # 关闭磁盘同步（牺牲部分安全性，换取写入速度）
+        cursor.execute("PRAGMA synchronous = OFF")
+        # 日志模式改为内存（减少磁盘操作）
+        cursor.execute("PRAGMA journal_mode = MEMORY")
+        # 限制缓存大小（避免占用过多内存，单位：页，1页=4KB）
+        cursor.execute("PRAGMA cache_size = -5000")  # 缓存20MB（可根据内存调整）
         
         print("成功连接到数据库")
         
-        # 检查dictionary表是否存在
+        # 检查必要表是否存在
         cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='dictionary'")
         if not cursor.fetchone():
             print("错误：dictionary表不存在！")
-            conn.close()
             return
         
-        # 检查raw表是否存在
         cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='raw'")
         if not cursor.fetchone():
             print("错误：raw表不存在！")
-            conn.close()
             return
         
-        # 检查dictionary表的字段
+        # 检查dictionary表字段
         cursor.execute("PRAGMA table_info(dictionary)")
         dict_columns = [col[1] for col in cursor.fetchall()]
-        if 'words' not in dict_columns:
-            print("错误：dictionary表中没有words字段！")
-            conn.close()
-            return
-        if 'count' not in dict_columns:
-            print("错误：dictionary表中没有count字段！")
-            conn.close()
-            return
-
-        # 如果 variety 字段不存在，就添加（类型为 TEXT）
-        if 'variety' not in dict_columns:
-            try:
-                cursor.execute("ALTER TABLE dictionary ADD COLUMN variety TEXT")
-                # 立即刷新列信息（可选）
-                cursor.execute("PRAGMA table_info(dictionary)")
-                dict_columns = [col[1] for col in cursor.fetchall()]
-                print("提示：dictionary 表中缺少 variety 字段，已自动添加 variety (TEXT)。")
-            except sqlite3.Error as e:
-                print(f"尝试添加 variety 字段时出错: {e}")
-                conn.close()
+        required_cols = ['words', 'count']
+        for col in required_cols:
+            if col not in dict_columns:
+                print(f"错误：dictionary表中没有'{col}'字段！")
                 return
         
-        # 检查raw表的字段
-        cursor.execute("PRAGMA table_info(raw)")
-        raw_columns = [col[1] for col in cursor.fetchall()]
-        if 'lyric_raw' not in raw_columns:
-            print("错误：raw表中没有lyric_raw字段！")
-            conn.close()
-            return
-        
-        # 获取dictionary表中的所有单词
-        cursor.execute("SELECT id, words FROM dictionary")
-        words = cursor.fetchall()
-        
-        if not words:
-            print("dictionary表中没有数据")
-            conn.close()
-            return
-        
-        print(f"找到 {len(words)} 个单词需要统计")
-        
-        # 获取所有歌词
-        cursor.execute("SELECT id, lyric_raw FROM raw")
-        all_lyrics = cursor.fetchall()
-        print(f"从数据库中获取了 {len(all_lyrics)} 条歌词")
-        
-        # 逐个单词进行统计
-        for word_id, word in words:
+        # 新增/检查variety字段（INTEGER类型，更高效）
+        if 'variety' not in dict_columns:
             try:
-                print(f"\n处理单词: '{word}'")
-                
-                # 统计单词在所有歌词中出现的总次数（原有功能）
-                total_count = 0
-                # 统计单词出现于多少条不同歌词记录（新增功能）
-                variety_count = 0
-                
-                word_lower = (word or "").lower()
-                pattern = r'\b' + re.escape(word_lower) + r'\b'
-                
-                for lyric_id, lyric in all_lyrics:
-                    lyric_text = lyric or ""
-                    # 将歌词转为小写进行不区分大小写的匹配
-                    lyric_lower = lyric_text.lower()
-                    
-                    # 使用正则表达式匹配单词边界
-                    matches = re.findall(pattern, lyric_lower)
-                    count_in_lyric = len(matches)
-                    
-                    if count_in_lyric > 0:
-                        # 原有详细输出
-                        print(f"  歌词{lyric_id}: '{lyric_text}'")
-                        print(f"    - 包含 {count_in_lyric} 个 '{word}'")
-                        total_count += count_in_lyric
-                        # 如果该歌词至少出现一次，则计入 variety（不同记录数）
-                        variety_count += 1
-                
-                # 更新dictionary表中的count字段（保持原有功能）
-                # 并将新增的 variety_count 写入 variety 字段（以 text 形式保存）
-                cursor.execute("""
-                    UPDATE dictionary 
-                    SET count = ?, variety = ?
-                    WHERE id = ?
-                """, (total_count, str(variety_count), word_id))
-                
-                print(f"  单词 '{word}' 总计出现次数: {total_count}")
-                print(f"  单词 '{word}' 出现在 {variety_count} 条不同的 lyric_raw 记录中 (已写入 variety)")
-                
-            except Exception as e:
-                print(f"处理单词 '{word}' 时出错: {e}")
+                cursor.execute("ALTER TABLE dictionary ADD COLUMN variety INTEGER DEFAULT 0")
+                print("提示：已自动添加 variety 字段（INTEGER类型）")
+            except sqlite3.Error as e:
+                print(f"添加variety字段失败: {e}")
+                return
         
-        # 提交事务
-        conn.commit()
-        print("\n所有单词统计完成并已更新到数据库")
+        # 1. 加载所有有效单词（过滤空值，建立ID映射）
+        cursor.execute("""
+            SELECT id, words FROM dictionary 
+            WHERE words IS NOT NULL AND words != ''
+        """)
+        words = cursor.fetchall()
+        if not words:
+            print("dictionary表中没有有效单词数据")
+            return
+        
+        # 构建单词映射：word_id → (原始单词, 小写单词)
+        word_map = {}
+        for word_id, word in words:
+            word_map[word_id] = (word, word.lower())
+        print(f"找到 {len(word_map)} 个有效单词")
+        
+        # 2. 初始化统计容器（内存占用低）
+        total_counts = defaultdict(int)  # 单词总出现次数
+        variety_counts = defaultdict(int)  # 单词出现的歌词记录数
+        
+        # 3. 分批读取歌词（避免一次性加载大量数据）
+        batch_size = 50  # 每批处理50条（低配电脑可再减小至20-30）
+        cursor.execute("""
+            SELECT id, lyric_raw FROM raw 
+            WHERE lyric_raw IS NOT NULL AND lyric_raw != ''
+        """)
+        
+        processed_lyrics = 0
+        while True:
+            # 分批获取歌词
+            lyric_batch = cursor.fetchmany(batch_size)
+            if not lyric_batch:
+                break
+            
+            # 处理当前批次歌词
+            for lyric_id, lyric in lyric_batch:
+                processed_lyrics += 1
+                lyric_lower = lyric.lower()  # 只转一次小写，避免重复计算
+                
+                # 遍历所有单词，统计当前歌词中的出现情况
+                for word_id, (word, word_lower) in word_map.items():
+                    count = count_word_occurrences(lyric_lower, word_lower)
+                    if count > 0:
+                        total_counts[word_id] += count
+                        variety_counts[word_id] += 1  # 同一歌词只计数一次
+                        
+                        #  verbose模式才打印详细信息（默认关闭）
+                        if verbose:
+                            print(f"\n歌词{lyric_id}: {lyric[:100]}..."  # 截断长歌词，减少IO
+                                  f"\n  包含 {count} 个 '{word}'")
+            
+            # 每处理100条打印一次进度（减少IO操作）
+            if processed_lyrics % 100 == 0:
+                print(f"已处理 {processed_lyrics} 条歌词...")
+        
+        print(f"\n歌词处理完成，共处理 {processed_lyrics} 条有效歌词")
+        
+        # 4. 批量更新数据库（减少磁盘IO）
+        update_data = []
+        for word_id, (word, _) in word_map.items():
+            total = total_counts.get(word_id, 0)
+            variety = variety_counts.get(word_id, 0)
+            update_data.append((total, variety, word_id))
+            # 简化输出，只打印关键统计
+            print(f"单词 '{word}'：总计 {total} 次，出现于 {variety} 条记录")
+        
+        # 执行批量更新
+        if update_data:
+            cursor.executemany("""
+                UPDATE dictionary 
+                SET count = ?, variety = ? 
+                WHERE id = ?
+            """, update_data)
+            conn.commit()
+            print(f"\n批量更新 {len(update_data)} 个单词的统计结果")
+        else:
+            print("\n没有需要更新的统计数据")
         
     except sqlite3.Error as e:
-        print(f"\n数据库操作错误: {e}")
+        print(f"\n数据库错误: {e}")
         if conn:
             conn.rollback()
+    except Exception as e:
+        print(f"\n程序错误: {e}")
     finally:
         if conn:
             conn.close()
             print("\n数据库连接已关闭")
 
 if __name__ == "__main__":
-    main()
+    # 默认关闭verbose模式（减少IO），需要详细输出可改为 main(verbose=True)
+    main(verbose=False)
