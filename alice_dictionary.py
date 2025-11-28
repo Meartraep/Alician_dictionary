@@ -61,11 +61,23 @@ class DatabaseHandler:
 
     def connect(self) -> bool:
         try:
-            self.close()
+            # 检查连接是否已经存在且有效
+            if self.conn is not None:
+                try:
+                    # 测试连接是否有效
+                    self.conn.execute("SELECT 1")
+                    return True
+                except sqlite3.Error:
+                    # 连接无效，需要重新连接
+                    self.close()
+            
             # 新增：检查数据库文件是否存在
             if not self.db_name.startswith(':memory:') and not os.path.exists(self.db_name):
                 messagebox.showerror("数据库错误", f"数据库文件不存在: {self.db_name}")
                 return False
+            
+            # 确保之前的连接已关闭
+            self.close()
             
             self.conn = sqlite3.connect(self.db_name, check_same_thread=False)
             self.conn.execute("PRAGMA cache_size = -1000")
@@ -74,7 +86,12 @@ class DatabaseHandler:
             return self._verify_database_structure()
         except sqlite3.Error as e:
             messagebox.showerror("数据库错误", f"连接数据库失败: {str(e)}")
+            self.close()  # 确保连接已关闭
             return False
+            
+    def __del__(self):
+        """析构函数确保连接关闭"""
+        self.close()
 
     def _verify_database_structure(self) -> bool:
         try:
@@ -131,21 +148,26 @@ class DatabaseHandler:
 
 
 class TextProcessor:
+    # 预编译常用正则表达式
+    _WHITESPACE_PATTERN = re.compile(r'\s+')
+    
     @staticmethod
     def normalize_text(text: str) -> str:
         if not text:
             return ""
         
-        text = text.replace('\r\n', '\n').replace('\r', '\n').replace('\u3000', ' ').replace('\t', ' ').replace('\u00A0', ' ')
+        # 优化：避免不必要的字符串替换操作
+        # 直接使用splitlines和join处理换行符
         lines = []
-        for line in text.split('\n'):
+        for line in text.splitlines():
+            # 替换特殊空白字符
+            line = line.replace('\u3000', ' ').replace('\t', ' ').replace('\u00A0', ' ')
             stripped = line.strip()
-            lines.append(re.sub(r'\s+', ' ', stripped))
+            if stripped:
+                # 优化：仅对非空行应用空白字符替换
+                normalized = TextProcessor._WHITESPACE_PATTERN.sub(' ', stripped)
+                lines.append(normalized)
         
-        while lines and not lines[0]:
-            lines.pop(0)
-        while lines and not lines[-1]:
-            lines.pop()
         return '\n'.join(lines)
 
     @staticmethod
@@ -154,50 +176,77 @@ class TextProcessor:
 
     @staticmethod
     def extract_all_valid_paragraphs(lyric: str, search_word: Optional[str] = None) -> List[str]:
-        lines = [line.rstrip('\r\n') for line in lyric.splitlines()]
+        if not lyric:
+            return []
+            
+        # 直接使用splitlines避免额外的rstrip操作
+        lines = lyric.splitlines()
         valid = []
         used = set()
-        pattern = re.compile(r'\b' + re.escape(search_word) + r'\b', re.IGNORECASE) if search_word else None
+        total_lines = len(lines)
+        
+        # 优化：避免不必要的正则表达式编译
+        has_search_word = bool(search_word)
+        if has_search_word:
+            # 使用预编译模式
+            pattern = TextProcessor._get_compiled_pattern(search_word)
 
-        for i in range(len(lines)):
+        for i in range(total_lines):
             if i in used:
                 continue
             
             is_first = (i == 0)
-            has_empty_above = is_first or (lines[i-1].strip() == "")
-            has_empty_below = (i == len(lines)-1) or (lines[i+1].strip() == "")
+            # 优化：避免重复计算和strip操作
+            has_empty_above = is_first or (not lines[i-1] or lines[i-1].isspace())
+            has_empty_below = (i == total_lines-1) or (i+1 < total_lines and (not lines[i+1] or lines[i+1].isspace()))
             
             if is_first or (has_empty_above and has_empty_below):
                 para_lines = []
                 empty_cnt = 0
                 j = i
-                while j < len(lines) and empty_cnt < 2:
-                    para_lines.append(lines[j])
+                while j < total_lines and empty_cnt < 2:
+                    line = lines[j]
+                    para_lines.append(line)
                     used.add(j)
-                    if lines[j].strip() == "":
+                    # 优化：使用更高效的空字符串检查
+                    if not line or line.isspace():
                         empty_cnt += 1
                     j += 1
                 
+                # 优化：避免不必要的规范化操作
                 raw = '\n'.join(para_lines)
-                norm = raw.strip()
-                if norm and (not pattern or pattern.search(norm)):
+                if raw.strip() and (not has_search_word or pattern.search(raw)):
                     valid.append(raw)
         return valid
 
     @staticmethod
     def find_paragraph_positions(lyric: str, paragraph: str) -> Tuple[int, int]:
         if not lyric or not paragraph:
-            return (0, 0)
+            return 0, 0
         
-        norm_lyric = [TextProcessor.normalize_text(line) for line in lyric.split('\n')]
-        norm_para = [TextProcessor.normalize_text(line) for line in paragraph.split('\n')]
+        # 首先尝试直接查找原始段落（避免不必要的规范化）
+        try:
+            start_pos = lyric.find(paragraph)
+            if start_pos != -1:
+                return (start_pos, start_pos + len(paragraph))
+        except Exception:
+            pass
+        
+        # 如果直接查找失败，再使用规范化方法
+        norm_lyric_lines = []
+        lyric_lines = lyric.split('\n')
+        norm_lyric_lines = [TextProcessor.normalize_text(line) for line in lyric_lines]
+        
+        para_lines = paragraph.split('\n')
+        norm_para = [TextProcessor.normalize_text(line) for line in para_lines]
         para_len = len(norm_para)
         start_idx = -1
 
-        for i in range(len(norm_lyric) - para_len + 1):
+        # 查找匹配的段落起始位置
+        for i in range(len(norm_lyric_lines) - para_len + 1):
             match = True
             for j in range(para_len):
-                if norm_lyric[i+j] != norm_para[j]:
+                if norm_lyric_lines[i+j] != norm_para[j]:
                     match = False
                     break
             if match:
@@ -207,24 +256,37 @@ class TextProcessor:
         if start_idx == -1:
             return (0, min(len(paragraph), len(lyric)))
         
+        # 计算字符位置（优化：避免重复分割字符串）
         start_pos = 0
         for i in range(start_idx):
-            start_pos += len(lyric.split('\n')[i]) + 1
+            start_pos += len(lyric_lines[i]) + 1
         
         end_pos = start_pos
-        raw_lyric = lyric.split('\n')
         for j in range(para_len):
-            end_pos += len(raw_lyric[start_idx + j]) + 1
+            end_pos += len(lyric_lines[start_idx + j]) + 1
         end_pos -= 1
         return (start_pos, end_pos)
 
-    @staticmethod
-    def highlight_text(text_widget: scrolledtext.ScrolledText, text: str, word: str) -> None:
+    # 存储已编译的正则表达式，避免重复编译
+    _compiled_patterns = {}
+    
+    @classmethod
+    def _get_compiled_pattern(cls, word: str) -> re.Pattern:
+        """获取或编译正则表达式模式"""
+        if word not in cls._compiled_patterns:
+            # 预编译并存储正则表达式
+            cls._compiled_patterns[word] = re.compile(r'\b' + re.escape(word) + r'\b', re.IGNORECASE)
+        return cls._compiled_patterns[word]
+    
+    @classmethod
+    def highlight_text(cls, text_widget: scrolledtext.ScrolledText, text: str, word: str) -> None:
         if not word:
             return
         
         text_widget.tag_remove("highlight", 1.0, tk.END)
-        pattern = re.compile(r'\b' + re.escape(word) + r'\b', re.IGNORECASE)
+        # 使用预编译的正则表达式
+        pattern = cls._get_compiled_pattern(word)
+        
         for match in pattern.finditer(text):
             s, e = match.span()
             text_widget.tag_add("highlight", f"1.0 + {s} chars", f"1.0 + {e} chars")
@@ -313,11 +375,18 @@ class UIBuilder:
         self.results_canvas.create_window((0, 0), window=self.results_container, anchor="nw")
         self.results_canvas.configure(yscrollcommand=self.results_scrollbar.set)
         
+        # 存储事件绑定，以便后续清理
+        self._mouse_wheel_bindings = []
         for evt in ["<MouseWheel>", "<Button-4>", "<Button-5>"]:
-            self.results_canvas.bind(evt, self.app.on_mouse_wheel)
+            # 存储绑定ID
+            binding_id = self.results_canvas.bind(evt, self.app.on_mouse_wheel)
+            self._mouse_wheel_bindings.append((self.results_canvas, evt, binding_id))
         
         self.results_canvas.pack(side="left", fill="both", expand=True)
         self.results_scrollbar.pack(side="right", fill="y")
+        
+        # 存储引用到主应用
+        self.app._result_canvas = self.results_canvas
 
     def _create_examples_area(self) -> None:
         example_title_frame = ttk.Frame(self.right_frame)
@@ -334,9 +403,10 @@ class UIBuilder:
         self.examples_canvas.create_window((0, 0), window=self.examples_content, anchor="nw")
         self.examples_canvas.configure(yscrollcommand=self.examples_scrollbar.set)
         
+        # 只在canvas上绑定鼠标滚轮事件，避免重复绑定到frame
         for evt in ["<MouseWheel>", "<Button-4>", "<Button-5>"]:
-            self.examples_canvas.bind(evt, self.app.on_mouse_wheel)
-            self.examples_frame.bind(evt, self.app.on_mouse_wheel)
+            binding_id = self.examples_canvas.bind(evt, self.app.on_mouse_wheel)
+            self._mouse_wheel_bindings.append((self.examples_canvas, evt, binding_id))
         
         self.examples_canvas.pack(side="left", fill="both", expand=True)
         self.examples_scrollbar.pack(side="right", fill="y")
@@ -345,18 +415,35 @@ class UIBuilder:
         self.progress_label.pack(anchor=tk.CENTER, pady=(5, 0))
 
     def clear_results(self) -> None:
-        for widget in self.results_container.winfo_children():
+        # 收集所有子组件，然后移除事件绑定并销毁
+        children = list(self.results_container.winfo_children())  # 转换为列表以避免迭代时修改
+        for widget in children:
+            # 移除组件上的所有事件绑定
+            try:
+                widget.unbind("<Button-1>")
+                widget.unbind("<Enter>")
+                widget.unbind("<Leave>")
+            except:
+                pass
             widget.destroy()
         self.root.update_idletasks()
 
     def clear_examples(self) -> None:
-        for widget in self.examples_content.winfo_children():
+        # 收集所有子组件，然后移除事件绑定并销毁
+        children = list(self.examples_content.winfo_children())  # 转换为列表以避免迭代时修改
+        for widget in children:
+            # 移除组件上的所有事件绑定
+            try:
+                widget.unbind("<Button-1>")
+                widget.unbind("<Enter>")
+                widget.unbind("<Leave>")
+            except:
+                pass
             widget.destroy()
         self.root.update_idletasks()
 
     def add_result_section(self, title: str) -> None:
         ttk.Label(self.results_container, text=title, font=(Config.FONT_FAMILY, Config.DEFAULT_FONT_SIZE, "bold")).pack(anchor=tk.W, pady=(5, 2))
-        self.results_canvas.configure(scrollregion=self.results_canvas.bbox("all"))
 
     def add_result_entry(self, word: str, explanation: str, result_type: str, index: int) -> None:
         frame = ttk.Frame(self.results_container)
@@ -373,8 +460,6 @@ class UIBuilder:
             ttk.Label(word_frame, text=f"爱丽丝语: {word}", wraplength=400).pack(anchor=tk.W)
         
         ttk.Button(frame, text="查询例句", command=lambda w=word: self.app.start_show_examples(w)).pack(side=tk.RIGHT, padx=5)
-        self.results_canvas.configure(scrollregion=self.results_canvas.bbox("all"))
-        self.root.update_idletasks()
 
     def add_no_results_message(self, query: str) -> None:
         ttk.Label(self.results_container, text=f"未找到 '{query}' 的翻译", font=(Config.FONT_FAMILY, Config.DEFAULT_FONT_SIZE)).pack(anchor=tk.W, pady=5)
@@ -384,18 +469,15 @@ class UIBuilder:
         btn_frame = ttk.Frame(self.results_container)
         btn_frame.pack(fill=tk.X, pady=(5, 10))
         ttk.Button(btn_frame, text=f"查询包含 '{query}' 的例句", command=lambda w=query: self.app.start_show_examples(w)).pack(anchor=tk.CENTER)
-        self.results_canvas.configure(scrollregion=self.results_canvas.bbox("all"))
-        self.root.update_idletasks()
 
     def add_examples_header(self, count: int) -> None:
         ttk.Label(self.examples_content, text=f"找到 {count} 个例句:", font=(Config.FONT_FAMILY, Config.DEFAULT_FONT_SIZE, "bold")).pack(anchor=tk.W, pady=(5, 5))
-        self.examples_canvas.configure(scrollregion=self.examples_canvas.bbox("all"))
 
     def add_example_entry(self, example: Dict[str, str], index: int, search_word: str) -> None:
         frame = ttk.LabelFrame(self.examples_content, text=f"例句 {index + 1}", padding="5")
         frame.pack(fill=tk.X, padx=5, pady=5)
-        for evt in ["<MouseWheel>", "<Button-4>", "<Button-5>"]:
-            frame.bind(evt, self.app.on_mouse_wheel)
+        # 减少不必要的事件绑定，使用事件冒泡
+        frame.bindtags((frame, self.examples_content, "all"))
         
         ttk.Button(frame, text="查看完整歌词", command=lambda idx=index, t=example['title'], a=example['album'], l=example['lyric'], p=example['paragraph']: self.app.show_full_lyric(idx, t, a, l, p)).pack(anchor=tk.W, pady=(0, 2))
         ttk.Label(frame, text=f"来源: {example['album']} - {example['title']}", font=(Config.FONT_FAMILY, Config.LABEL_FONT_SIZE), foreground=Config.INFO_COLOR).pack(anchor=tk.W, pady=(0, 5))
@@ -407,15 +489,6 @@ class UIBuilder:
         
         line_count = example['paragraph'].count('\n') + 1
         text_widget.configure(height=max(line_count, Config.EXAMPLE_MIN_HEIGHT), state=tk.DISABLED)
-        
-        def on_scroll(evt):
-            self.app.on_mouse_wheel(evt)
-            return "break"
-        
-        for evt in ["<MouseWheel>", "<Button-4>", "<Button-5>"]:
-            text_widget.bind(evt, on_scroll)
-        
-        self.examples_canvas.configure(scrollregion=self.examples_canvas.bbox("all"))
 
     def add_no_examples_message(self, word: str) -> None:
         ttk.Label(self.examples_content, text=f"未找到包含 '{word}' 的例句").pack(pady=10)
@@ -443,20 +516,23 @@ class AliceDictionaryApp:
         self.ui.create_main_window()
         self.ui.create_widgets()
         self.root.protocol("WM_DELETE_WINDOW", self.on_close)
+        
+        # 为后续清理存储必要的引用
+        self._result_canvas = None
+        self._examples_canvas = None
 
     def on_mouse_wheel(self, event: tk.Event) -> None:
-        x, y = event.x_root, event.y_root
+        # 优化鼠标滚轮事件处理，避免不必要的计算
+        widget = event.widget
         
-        examples_widget = self.ui.examples_canvas.winfo_containing(x, y)
-        in_examples = self._is_widget_inside(examples_widget, self.ui.examples_canvas) if examples_widget else False
-        
-        results_widget = self.ui.results_canvas.winfo_containing(x, y)
-        in_results = self._is_widget_inside(results_widget, self.ui.results_canvas) if results_widget else False
-        
-        if in_examples:
+        # 检查是否在examples canvas上
+        if widget == self.ui.examples_canvas or widget.master == self.ui.examples_canvas:
             self._handle_scroll(event, self.ui.examples_canvas)
-        elif in_results:
+            return "break"  # 阻止事件继续传播
+        # 检查是否在results canvas上
+        elif widget == self.ui.results_canvas or widget.master == self.ui.results_canvas:
             self._handle_scroll(event, self.ui.results_canvas)
+            return "break"  # 阻止事件继续传播
 
     def _is_widget_inside(self, widget: tk.Widget, container: tk.Canvas) -> bool:
         if widget == container:
@@ -472,7 +548,7 @@ class AliceDictionaryApp:
         except Exception:
             return False
 
-    def _handle_scroll(self, event: tk.Event, canvas: tk.Canvas) -> None:
+    def _handle_scroll(self, event: tk.Event, canvas: tk.Canvas) -> str:
         delta = -event.delta if sys.platform == 'darwin' else event.delta
         if delta:
             canvas.yview_scroll(int(-1 * (delta / 120)), "units")
@@ -495,14 +571,16 @@ class AliceDictionaryApp:
             self.current_word = query
             self.ui.clear_results()
             
-            if not self.db_handler or not self.db_handler.conn:
+            # 只在必要时创建或重新连接数据库
+            if not self.db_handler:
                 self.db_handler = DatabaseHandler(Config.CURRENT_DB)
-                self.db_handler.connect()
+            self.db_handler.connect()
             
             # 新增：传递精确匹配状态到搜索方法
             alice_res, chinese_res = self.db_handler.search_words(query, is_exact_match)
             found = False
             
+            # 批量添加结果，减少UI更新次数
             if alice_res:
                 self.ui.add_result_section("爱丽丝语 -> 中文:")
                 for idx, (word, exp) in enumerate(alice_res):
@@ -519,7 +597,9 @@ class AliceDictionaryApp:
                 self.ui.add_no_results_message(query)
                 self.ui.add_no_result_example_button(query)
             
-            self.root.update_idletasks()
+            # 所有结果添加完成后，一次性更新UI和滚动区域
+            self.ui.results_canvas.update_idletasks()
+            self.ui.results_canvas.configure(scrollregion=self.ui.results_canvas.bbox("all"))
         except Exception as e:
             messagebox.showerror("错误", f"搜索时发生错误: {str(e)}")
 
@@ -541,18 +621,23 @@ class AliceDictionaryApp:
             return
         
         try:
-            thread_db = DatabaseHandler(Config.CURRENT_DB)
-            if not thread_db.connect():
-                return
-            songs = thread_db.find_songs_with_word(word)
-            thread_db.close()
+            # 重用主应用的数据库连接，避免创建新连接
+            if not self.db_handler or not self.db_handler.conn:
+                self.db_handler = DatabaseHandler(Config.CURRENT_DB)
+                self.db_handler.connect()
+            
+            songs = self.db_handler.find_songs_with_word(word)
             # 处理例句并去重，过滤无效统计项
             self.current_examples, self.current_song_stats = self._process_and_deduplicate_examples(songs, word)
         except Exception as e:
             print(f"例句处理异常: {str(e)}")  # 调试用
             self.current_examples = []
             self.current_song_stats = defaultdict(lambda: {'before': 0, 'after': 0})
-        
+        finally:
+            # 强制垃圾回收以释放内存
+            import gc
+            gc.collect()
+            
         self.root.after(0, self.finish_show_examples)
 
     def _process_and_deduplicate_examples(self, songs: List[Tuple[str, str, str]], word: str) -> Tuple[List[Dict[str, str]], Dict[Tuple[str, str], Dict[str, int]]]:
@@ -565,7 +650,11 @@ class AliceDictionaryApp:
             if not title or not album:
                 continue
             
-            song_key = (album.strip(), title.strip())
+            # 优化：提前strip字符串，避免重复strip
+            stripped_album = album.strip()
+            stripped_title = title.strip()
+            song_key = (stripped_album, stripped_title)
+            
             # 提取有效例句（含目标单词的段落）
             raw_paragraphs = TextProcessor.extract_valid_examples(lyric, word)
             before_count = len(raw_paragraphs)
@@ -579,13 +668,13 @@ class AliceDictionaryApp:
             for para in raw_paragraphs:
                 normalized_para = TextProcessor.normalize_text(para)
                 # 用（标准化段落+专辑+标题）作为唯一标识，避免不同歌曲的相同段落被误判为重复
-                example_id = (normalized_para, album.strip(), title.strip())
+                example_id = (normalized_para, stripped_album, stripped_title)
                 if example_id not in seen_examples:
                     seen_examples.add(example_id)
                     unique_examples.append({
                         'paragraph': para,
-                        'title': title.strip(),
-                        'album': album.strip(),
+                        'title': stripped_title,
+                        'album': stripped_album,
                         'lyric': lyric
                     })
                     after_count += 1
@@ -604,10 +693,18 @@ class AliceDictionaryApp:
             self.ui.add_no_examples_message(self.current_matched_word)
             # 清空统计数据，避免后续显示无效信息
             self.current_song_stats = defaultdict(lambda: {'before': 0, 'after': 0})
+            # 更新滚动区域
+            self.ui.examples_canvas.update_idletasks()
+            self.ui.examples_canvas.configure(scrollregion=self.ui.examples_canvas.bbox("all"))
         else:
+            # 批量添加所有例句
             self.ui.add_examples_header(len(self.current_examples))
             for idx, example in enumerate(self.current_examples):
                 self.ui.add_example_entry(example, idx, self.current_matched_word)
+            
+            # 所有例句添加完成后，一次性更新UI和滚动区域
+            self.ui.examples_canvas.update_idletasks()
+            self.ui.examples_canvas.configure(scrollregion=self.ui.examples_canvas.bbox("all"))
 
     def show_full_lyric(self, initial_index: int, title: str, album: str, lyric: str, target_paragraph: str) -> None:
         search_word = self.current_matched_word
@@ -776,9 +873,55 @@ class AliceDictionaryApp:
         update_lyric_display(initial_index)
 
     def on_close(self) -> None:
+        # 停止可能正在进行的搜索
+        self.is_processing = False
+        
+        # 移除所有事件绑定
+        self._remove_event_bindings()
+        
+        # 关闭数据库连接
         if self.db_handler:
             self.db_handler.close()
+            self.db_handler = None
+        
+        # 清空数据结构以释放内存
+        self.current_examples.clear()
+        self.current_song_stats.clear()
+        
+        # 清空正则表达式缓存
+        if hasattr(TextProcessor, '_compiled_patterns'):
+            TextProcessor._compiled_patterns.clear()
+        
+        # 强制垃圾回收
+        import gc
+        gc.collect()
+        
+        # 关闭主窗口
         self.root.destroy()
+    
+    def _remove_event_bindings(self):
+        """移除所有事件绑定，避免内存泄漏"""
+        # 移除canvas上的鼠标滚轮事件绑定
+        if hasattr(self.ui, '_mouse_wheel_bindings'):
+            for widget, event, binding_id in self.ui._mouse_wheel_bindings:
+                try:
+                    widget.unbind(event, funcid=binding_id)
+                except:
+                    pass
+            self.ui._mouse_wheel_bindings.clear()
+        
+        # 移除查询框的回车绑定
+        if hasattr(self.ui, 'query_entry'):
+            try:
+                self.ui.query_entry.unbind('<Return>')
+            except:
+                pass
+        
+        # 移除主窗口的关闭协议
+        try:
+            self.root.protocol("WM_DELETE_WINDOW", None)
+        except:
+            pass
 
 
 if __name__ == "__main__":
