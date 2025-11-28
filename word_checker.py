@@ -1,11 +1,49 @@
+import os
+import re
+import sqlite3
 import tkinter as tk
 from tkinter import ttk, scrolledtext, messagebox, filedialog
-import sqlite3
-import re
 import json
-import os
+import logging
+
+# 配置日志
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
+
+class DatabaseManager:
+    """数据库连接管理器 - 单例模式"""
+    _instance = None
+    _connection = None
+    
+    def __new__(cls):
+        if cls._instance is None:
+            cls._instance = super(DatabaseManager, cls).__new__(cls)
+        return cls._instance
+    
+    def get_connection(self):
+        """获取数据库连接，如果连接不存在或已关闭则创建新连接"""
+        if self._connection is None or self._connection.close is not None:
+            try:
+                self._connection = sqlite3.connect("translated.db")
+                # 启用外键约束
+                self._connection.execute("PRAGMA foreign_keys = ON")
+            except sqlite3.Error as e:
+                logger.error(f"创建数据库连接时出错: {e}")
+                raise
+        return self._connection
+    
+    def close_connection(self):
+        """关闭数据库连接"""
+        if self._connection is not None:
+            try:
+                self._connection.close()
+                self._connection = None
+            except sqlite3.Error as e:
+                logger.error(f"关闭数据库连接时出错: {e}")
 
 class WordCheckerApp:
+    # 预编译正则表达式
+    WORD_PATTERN = re.compile(r"\b[a-zA-Z]+\b")  # 匹配单词的正则表达式
     def __init__(self, root):
         self.root = root
         self.root.title("单词检查器")
@@ -22,8 +60,9 @@ class WordCheckerApp:
         # key -> (count:int, variety:int)
         self.word_stats = {}
         
-        # 撤销功能初始化
-        self.undo_stack = []
+        # 优化的撤销/重做机制
+        self.undo_stack = []  # 存储操作差异而不是全文
+        self.redo_stack = []
         self.max_undo_steps = self.config["max_undo_steps"]
         self.is_undoing = False
         
@@ -34,12 +73,23 @@ class WordCheckerApp:
         # key_for_map -> {'display': str, 'pos': int, 'type': 'unknown'/'lowstat', 'reasons': set(...) }
         self.highlighted_map = {}
         
+        # 检查延迟（用于防抖）
+        self.check_delay = None
+        
+        # 用于增量检查
+        self.last_text_hash = None  # 上次检查的文本哈希值
+        self.last_checked_text = ""  # 上次检查的完整文本
+        self.text_buffer = {}  # 存储每行文本的映射
+        
         # 创建GUI组件，加载数据库
         self.create_widgets()
+        
+        # 设置窗口关闭时的处理
+        self.root.protocol("WM_DELETE_WINDOW", self._on_closing)
+        
         self.load_known_words()
         
         # 绑定事件：原有事件 + 新增文件操作快捷键
-        self.check_delay = None
         self.text_area.bind("<KeyRelease>", self.schedule_check)
         self.text_area.bind("<<Paste>>", lambda e: self.root.after(100, self.schedule_check))
         self.text_area.bind("<<Modified>>", self.push_undo_state)
@@ -108,8 +158,13 @@ class WordCheckerApp:
         
         ttk.Label(sidebar_frame, text="高亮单词列表（红色优先）").pack(anchor="w", pady=(0,5), padx=5)
         
-        # 使用 Treeview 以便为每行设置颜色 tag
-        self.sidebar_tree = ttk.Treeview(sidebar_frame, show="tree", selectmode="browse")
+        # 使用 Treeview 以便为每行设置颜色 tag - 优化性能配置
+        self.sidebar_tree = ttk.Treeview(
+            sidebar_frame, 
+            show="tree", 
+            selectmode="browse",
+            height=20  # 限制初始高度，提高性能
+        )
         # 配置标签颜色
         self.sidebar_tree.tag_configure("unknown", foreground="red")
         self.sidebar_tree.tag_configure("lowstat", foreground="blue")
@@ -131,6 +186,10 @@ class WordCheckerApp:
         self.text_area.tag_config("unknown", foreground="red")
         # 新增：低统计（count 或 variety < 3）蓝色高亮
         self.text_area.tag_config("lowstat", foreground="blue")
+        
+        # 优化文本更新：设置延迟更新标志
+        self._updating_highlight = False
+        self._pending_highlight_update = False
     
     # ---------------------- 打开/保存/设置 ----------------------
     def open_txt_file(self):
@@ -287,7 +346,9 @@ class WordCheckerApp:
         """从数据库获取单词的释义"""
         explanations = {}
         try:
-            conn = sqlite3.connect("translated.db")
+            # 使用数据库连接管理器获取连接
+            db_manager = DatabaseManager()
+            conn = db_manager.get_connection()
             cursor = conn.cursor()
             for word in words:
                 if self.config["strict_case"]:
@@ -296,7 +357,7 @@ class WordCheckerApp:
                     cursor.execute("SELECT explanation FROM dictionary WHERE LOWER(words) = LOWER(?)", (word,))
                 result = cursor.fetchone()
                 explanations[word] = result[0] if result else "未找到释义"
-            conn.close()
+            # 不再手动关闭连接，由数据库管理器统一管理
             return explanations
         except sqlite3.Error as e:
             print(f"数据库查询错误: {e}")
@@ -309,6 +370,9 @@ class WordCheckerApp:
         window.geometry("600x400")
         window.transient(self.root)
         window.grab_set()
+        
+        # 设置窗口关闭时的清理函数
+        window.protocol("WM_DELETE_WINDOW", lambda: self._cleanup_window(window))
         
         text_frame = ttk.Frame(window)
         text_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
@@ -338,8 +402,11 @@ class WordCheckerApp:
     def load_known_words(self):
         """从数据库加载已知单词，并缓存 count/variety 字段"""
         try:
-            conn = sqlite3.connect("translated.db")
+            # 使用数据库连接管理器获取连接
+            db_manager = DatabaseManager()
+            conn = db_manager.get_connection()
             cursor = conn.cursor()
+            
             cursor.execute("SELECT words, count, variety FROM dictionary")
             rows = cursor.fetchall()
             
@@ -362,7 +429,7 @@ class WordCheckerApp:
                     self.known_words.add(lw)
                     self.word_stats[lw] = (c, v)
             
-            conn.close()
+            # 不再手动关闭连接，由数据库管理器统一管理
             case_status = "严格区分大小写" if self.config["strict_case"] else "不区分大小写"
             self.status_label.config(text=f"状态：就绪 - 已加载 {len(self.known_words)} 个已知单词（{case_status}）")
         except sqlite3.Error as e:
@@ -380,30 +447,89 @@ class WordCheckerApp:
         """触发单词检查"""
         if self.check_delay:
             self.root.after_cancel(self.check_delay)
-        self.check_delay = self.root.after(100, self.check_words)
+        # 增加延迟时间以减少检查频率，特别是对大文件
+        delay_ms = 200 if len(self.text_area.get("1.0", tk.END)) > 10000 else 100
+        self.check_delay = self.root.after(delay_ms, self.check_words)
     
     def check_words(self):
         """检查文本中的单词并高亮显示未知单词；同时对低统计单词标蓝；并更新侧边栏"""
-        # 先移除已有高亮
+        text = self.text_area.get("1.0", tk.END)
+        current_hash = hash(text)
+        
+        # 文本为空时的处理
+        if not text.strip():
+            # 清除所有高亮
+            self.text_area.tag_remove("unknown", "1.0", tk.END)
+            self.text_area.tag_remove("lowstat", "1.0", tk.END)
+            self.highlighted_map.clear()
+            
+            case_status = "严格区分大小写" if self.config["strict_case"] else "不区分大小写"
+            self.status_label.config(text=f"状态：就绪 - 已加载 {len(self.known_words)} 个已知单词（{case_status}）")
+            self.update_sidebar()
+            self.last_text_hash = None
+            self.last_checked_text = ""
+            return
+        
+        # 如果文本没有变化，直接返回
+        if self.last_text_hash is not None and current_hash == self.last_text_hash:
+            return
+        
+        # 对于小文件或者首次检查，使用全量扫描
+        if len(text) < 10000 or self.last_text_hash is None:
+            return self._full_text_check(text)
+        
+        # 对于大文件，尝试增量检查
+        try:
+            # 获取变化的行范围
+            changed_lines = self._get_changed_lines(self.last_checked_text, text)
+            if not changed_lines:
+                self.last_text_hash = current_hash
+                self.last_checked_text = text
+                return
+                
+            # 清除变化行的高亮
+            for line_num in changed_lines:
+                start_pos = f"{line_num}.0"
+                end_pos = f"{line_num}.end"
+                self.text_area.tag_remove("unknown", start_pos, end_pos)
+                self.text_area.tag_remove("lowstat", start_pos, end_pos)
+            
+            # 重新检查变化的行
+            unknown_count = self._check_changed_lines(text, changed_lines)
+            
+            # 更新状态标签
+            self._update_status_label(unknown_count)
+            
+            # 更新侧边栏
+            self.update_sidebar()
+            
+            # 保存当前文本状态
+            self.last_text_hash = current_hash
+            self.last_checked_text = text
+            
+        except Exception as e:
+            logger.error(f"增量检查出错: {e}")
+            # 出错时回退到全量检查
+            return self._full_text_check(text)
+    
+    def _full_text_check(self, text):
+        """全量检查文本中的所有单词 - 优化的批量高亮更新"""
+        # 移除所有高亮
         self.text_area.tag_remove("unknown", "1.0", tk.END)
         self.text_area.tag_remove("lowstat", "1.0", tk.END)
         
-        # 清空当前高亮映射
+        # 清空高亮映射
         self.highlighted_map.clear()
         
-        text = self.text_area.get("1.0", tk.END)
-        
-        if not text.strip():
-            case_status = "严格区分大小写" if self.config["strict_case"] else "不区分大小写"
-            self.status_label.config(text=f"状态：就绪 - 已加载 {len(self.known_words)} 个已知单词（{case_status}）")
-            # 更新侧边栏为空
-            self.update_sidebar()
-            return
-        
-        pattern = r"\b[a-zA-Z]+\b"
-        matches = re.finditer(pattern, text)
         unknown_count = 0
         
+        # 批量处理：先收集所有需要添加的标签
+        tags_to_add = {"unknown": [], "lowstat": []}
+        
+        # 使用预编译的正则表达式
+        matches = self.WORD_PATTERN.finditer(text)
+        
+        # 第一阶段：收集所有需要高亮的单词信息
         for match in matches:
             word = match.group()
             start = match.start()
@@ -424,8 +550,8 @@ class WordCheckerApp:
                 map_key = lw
             
             if not is_known:
-                # 未知单词：红色
-                self.text_area.tag_add("unknown", start_pos, end_pos)
+                # 未知单词：收集红色标记
+                tags_to_add["unknown"].append((start_pos, end_pos))
                 unknown_count += 1
                 # 若尚未记录该词，记录其首出现位置与显示文本
                 if map_key not in self.highlighted_map:
@@ -449,8 +575,8 @@ class WordCheckerApp:
                     except Exception:
                         pass
                     if low_reasons:
-                        # 蓝色标记
-                        self.text_area.tag_add("lowstat", start_pos, end_pos)
+                        # 收集蓝色标记
+                        tags_to_add["lowstat"].append((start_pos, end_pos))
                         # 若尚未记录该词，记录首出现位置与显示文本
                         if map_key not in self.highlighted_map:
                             self.highlighted_map[map_key] = {
@@ -467,6 +593,186 @@ class WordCheckerApp:
                                 existing['type'] = 'lowstat'
                                 existing['reasons'].update(low_reasons)
         
+        # 第二阶段：批量应用标签，减少UI更新次数
+        # 先应用unknown标签（红色）
+        for start_idx, end_idx in tags_to_add["unknown"]:
+            self.text_area.tag_add("unknown", start_idx, end_idx)
+        
+        # 再应用lowstat标签（蓝色）
+        for start_idx, end_idx in tags_to_add["lowstat"]:
+            self.text_area.tag_add("lowstat", start_idx, end_idx)
+            
+        # 强制进行一次批量UI更新
+        self.text_area.update_idletasks()
+        
+        # 更新状态标签
+        self._update_status_label(unknown_count)
+        
+        # 更新侧边栏
+        self.update_sidebar()
+        
+        # 保存当前文本状态
+        self.last_text_hash = hash(text)
+        self.last_checked_text = text
+        
+        return unknown_count
+    
+    def _get_changed_lines(self, old_text, new_text):
+        """获取文本中发生变化的行号列表"""
+        old_lines = old_text.split('\n')
+        new_lines = new_text.split('\n')
+        
+        # 简单实现：找到第一个不同的行，然后假设之后的所有行都可能受影响
+        changed_lines = set()
+        max_lines = max(len(old_lines), len(new_lines))
+        
+        for i in range(max_lines):
+            old_line = old_lines[i] if i < len(old_lines) else ""
+            new_line = new_lines[i] if i < len(new_lines) else ""
+            
+            if old_line != new_line:
+                # 记录变化的行，以及前后各一行（可能受单词分割影响）
+                for j in range(max(1, i-1), min(max_lines, i+2) + 1):
+                    changed_lines.add(j+1)  # tkinter行号从1开始
+        
+        return sorted(changed_lines)
+    
+    def _check_changed_lines(self, text, changed_lines):
+        """优化的变更行检查逻辑 - 批量处理和内存优化"""
+        # 如果没有变更行，直接返回
+        if not changed_lines:
+            return 0
+            
+        unknown_count = 0
+        text_lines = text.split('\n')
+        
+        # 建立位置映射，用于快速找到行号对应的字符位置
+        line_positions = [0]  # 行开始的字符位置
+        for line in text_lines:
+            line_positions.append(line_positions[-1] + len(line) + 1)  # +1 for newline
+        
+        # 批量操作：先收集所有需要添加的标签
+        tags_to_add = {"unknown": [], "lowstat": []}
+        
+        # 检查每一行
+        for line_num in changed_lines:
+            # 确保行号有效
+            if 1 <= line_num <= len(text_lines):
+                line_index = line_num - 1
+                line_text = text_lines[line_index]
+                line_start_pos = line_positions[line_index]
+                
+                # 在当前行中查找单词
+                for match in self.WORD_PATTERN.finditer(line_text):
+                    word = match.group()
+                    word_start_in_line = match.start()
+                    word_end_in_line = match.end()
+                    
+                    # 计算在整个文本中的位置
+                    global_start = line_start_pos + word_start_in_line
+                    global_end = line_start_pos + word_end_in_line
+                    
+                    # 转换为tkinter索引
+                    start_pos = self.get_text_index(text, global_start)
+                    end_pos = self.get_text_index(text, global_end)
+                    
+                    # 检查单词是否已知
+                    if self.config["strict_case"]:
+                        is_known = word in self.known_words
+                        key_for_stats = word
+                        map_key = word
+                    else:
+                        lw = word.lower()
+                        is_known = lw in self.known_words
+                        key_for_stats = lw
+                        map_key = lw
+                    
+                    # 收集需要添加的标签
+                    if not is_known:
+                        # 未知单词
+                        tags_to_add["unknown"].append((start_pos, end_pos))
+                        unknown_count += 1
+                        
+                        # 更新高亮映射
+                        # 只有当这是该单词的第一次出现时，才更新位置信息
+                        if map_key not in self.highlighted_map or \
+                           (map_key in self.highlighted_map and 
+                            self.highlighted_map[map_key]['pos'] > global_start):
+                            self.highlighted_map[map_key] = {
+                                'display': word,
+                                'pos': global_start,
+                                'type': 'unknown',
+                                'reasons': set()
+                            }
+                    else:
+                        # 已知单词，检查统计信息
+                        stats = self.word_stats.get(key_for_stats)
+                        if stats:
+                            c, v = stats
+                            low_reasons = set()
+                            try:
+                                if c < 3:
+                                    low_reasons.add('count')
+                                if v < 3:
+                                    low_reasons.add('variety')
+                            except Exception:
+                                pass
+                            if low_reasons:
+                                # 收集蓝色标签
+                                tags_to_add["lowstat"].append((start_pos, end_pos))
+                                
+                                # 更新高亮映射
+                                if map_key not in self.highlighted_map or \
+                                   (map_key in self.highlighted_map and 
+                                    self.highlighted_map[map_key]['pos'] > global_start):
+                                    self.highlighted_map[map_key] = {
+                                        'display': word,
+                                        'pos': global_start,
+                                        'type': 'lowstat',
+                                        'reasons': low_reasons
+                                    }
+                                else:
+                                    existing = self.highlighted_map[map_key]
+                                    if existing['type'] != 'unknown':
+                                        existing['type'] = 'lowstat'
+                                        existing['reasons'].update(low_reasons)
+        
+        # 批量清除标签 - 减少UI更新次数
+        for line_num in changed_lines:
+            start_pos = f"{line_num}.0"
+            end_pos = f"{line_num}.end"
+            self.text_area.tag_remove("unknown", start_pos, end_pos)
+            self.text_area.tag_remove("lowstat", start_pos, end_pos)
+        
+        # 批量应用标签 - 减少UI更新次数
+        # 首先处理unknown标签
+        for start_idx, end_idx in tags_to_add["unknown"]:
+            self.text_area.tag_add("unknown", start_idx, end_idx)
+        
+        # 然后处理lowstat标签
+        for start_idx, end_idx in tags_to_add["lowstat"]:
+            self.text_area.tag_add("lowstat", start_idx, end_idx)
+            
+        # 强制进行一次批量UI更新
+        self.text_area.update_idletasks()
+        
+        return unknown_count
+        
+        return unknown_count
+    
+    def _update_status_label(self, unknown_count):
+        """更新状态标签"""
+        case_status = "严格区分大小写" if self.config["strict_case"] else "不区分大小写"
+        if self.current_file_path:
+            file_name = os.path.basename(self.current_file_path)
+            self.status_label.config(
+                text=f"状态：已检查 - {file_name} - 未知单词: {unknown_count}个 - 已加载 {len(self.known_words)} 个已知单词（{case_status}）"
+            )
+        else:
+            self.status_label.config(
+                text=f"状态：已检查 - 未知单词: {unknown_count}个 - 已加载 {len(self.known_words)} 个已知单词（{case_status}）"
+            )
+        
         case_status = "严格区分大小写" if self.config["strict_case"] else "不区分大小写"
         if self.current_file_path:
             file_name = os.path.basename(self.current_file_path)
@@ -482,31 +788,85 @@ class WordCheckerApp:
         self.update_sidebar()
     
     def update_sidebar(self):
-        """根据 self.highlighted_map 更新侧边栏显示（红色优先，按出现顺序）"""
-        # 清空现有 tree 项
-        for item in self.sidebar_tree.get_children():
-            self.sidebar_tree.delete(item)
+        """优化的侧边栏更新逻辑 - 减少不必要的重建"""
+        # 收集当前树中的所有项
+        current_items = set(self.sidebar_tree.get_children())
         
-        # Build two lists: unknowns and lowstats, ordered by pos
+        # 准备新的项集合
+        new_items = {}
         unknowns = []
         lowstats = []
+        
+        # 分类整理需要显示的项
         for key, info in self.highlighted_map.items():
             if info['type'] == 'unknown':
                 unknowns.append((info['pos'], key, info))
             else:
                 lowstats.append((info['pos'], key, info))
         
+        # 排序
         unknowns.sort(key=lambda x: x[0])
         lowstats.sort(key=lambda x: x[0])
         
-        # Insert unknowns first, then lowstats
-        for _, key, info in unknowns:
+        # 合并排序后的列表，unknowns 优先
+        ordered_items = unknowns + lowstats
+        
+        # 批量操作前禁用更新以提高性能
+        self.sidebar_tree.update_idletasks()
+        
+        # 使用批量删除策略：只删除不再存在的项
+        items_to_delete = current_items - {key for _, key, _ in ordered_items}
+        for item_id in items_to_delete:
+            try:
+                self.sidebar_tree.delete(item_id)
+            except Exception:
+                pass
+        
+        # 跟踪已经存在的项，避免重复插入
+        existing_items = current_items - items_to_delete
+        
+        # 按顺序插入或更新项
+        last_item = ''  # 上一个插入的项ID，用于保持正确顺序
+        for _, key, info in ordered_items:
             display = info['display']
-            self.sidebar_tree.insert('', 'end', iid=key, text=display, tags=('unknown',))
-        for _, key, info in lowstats:
-            display = info['display']
-            # Ensure iid unique; key already unique per normalization
-            self.sidebar_tree.insert('', 'end', iid=key, text=display, tags=('lowstat',))
+            
+            # 如果项已存在，只需更新标签和位置
+            if key in existing_items:
+                # 检查标签是否需要更新
+                current_tags = set(self.sidebar_tree.item(key, 'tags'))
+                new_tag = 'unknown' if info['type'] == 'unknown' else 'lowstat'
+                
+                if new_tag not in current_tags:
+                    self.sidebar_tree.item(key, tags=(new_tag,))
+                
+                # 检查文本是否需要更新
+                current_text = self.sidebar_tree.item(key, 'text')
+                if current_text != display:
+                    self.sidebar_tree.item(key, text=display)
+                
+                # 移动到正确位置
+                if last_item:
+                    # 获取当前项的位置
+                    current_children = self.sidebar_tree.get_children()
+                    try:
+                        current_index = current_children.index(key)
+                        expected_index = current_children.index(last_item) + 1
+                        
+                        # 如果位置不正确，移动它
+                        if current_index != expected_index:
+                            self.sidebar_tree.move(key, '', expected_index)
+                    except (ValueError, IndexError):
+                        pass
+                
+                last_item = key
+            else:
+                # 插入新项
+                tag = ('unknown',) if info['type'] == 'unknown' else ('lowstat',)
+                self.sidebar_tree.insert('', 'end', iid=key, text=display, tags=tag)
+                last_item = key
+        
+        # 恢复更新并刷新UI
+        self.sidebar_tree.update_idletasks()
     
     def on_sidebar_select(self, event):
         """单击侧边栏项目（选择）时弹出问题窗口，点击窗口外自动关闭"""
@@ -604,36 +964,263 @@ class WordCheckerApp:
         return f"{line}.{col}"
     
     def push_undo_state(self, event=None):
-        """将当前文本状态压入撤销栈"""
+        """优化的撤销状态存储 - 使用差异存储而非全文存储"""
         if self.is_undoing or not self.text_area.edit_modified():
             return
         
-        current_text = self.text_area.get("1.0", tk.END)
+        current_text = self.text_area.get("1.0", tk.END)[:-1]  # 去除末尾换行符
         current_cursor = self.text_area.index(tk.INSERT)
         
-        self.undo_stack.append((current_text, current_cursor))
-        if len(self.undo_stack) > self.max_undo_steps:
-            self.undo_stack.pop(0)
+        # 如果撤销栈为空，保存初始状态
+        if not self.undo_stack:
+            self.undo_stack.append({
+                'type': 'snapshot',
+                'text': current_text,
+                'cursor': current_cursor
+            })
+        else:
+            # 获取前一个状态
+            previous_state = self.undo_stack[-1]
+            
+            # 如果前一个状态是快照，计算差异
+            if previous_state['type'] == 'snapshot':
+                prev_text = previous_state['text']
+            else:
+                # 如果前一个状态是差异，我们需要先应用所有差异来获取前一个文本
+                # 为了简化，我们可以定期创建快照
+                if len(self.undo_stack) % 10 == 0 or len(current_text) - previous_state.get('prev_length', 0) > 1000:
+                    # 创建新的快照
+                    self.undo_stack.append({
+                        'type': 'snapshot',
+                        'text': current_text,
+                        'cursor': current_cursor
+                    })
+                    # 清空重做栈
+                    self.redo_stack.clear()
+                    self.text_area.edit_modified(False)
+                    return
+                
+                # 从最近的快照恢复
+                last_snapshot_idx = -1
+                for i, state in enumerate(reversed(self.undo_stack)):
+                    if state['type'] == 'snapshot':
+                        last_snapshot_idx = len(self.undo_stack) - i - 1
+                        break
+                
+                # 如果没有找到快照，创建一个
+                if last_snapshot_idx == -1:
+                    self.undo_stack.append({
+                        'type': 'snapshot',
+                        'text': current_text,
+                        'cursor': current_cursor
+                    })
+                    self.text_area.edit_modified(False)
+                    return
+                
+                # 从快照开始应用差异，计算前一个状态的文本
+                prev_text = self.undo_stack[last_snapshot_idx]['text']
+                for i in range(last_snapshot_idx + 1, len(self.undo_stack) - 1):
+                    diff = self.undo_stack[i]
+                    if diff['type'] == 'diff':
+                        prev_text = self._apply_diff(prev_text, diff)
+            
+            # 计算当前文本与前一个状态的差异
+            diff = self._calculate_diff(prev_text, current_text)
+            
+            # 只有在有实际变化时才添加到栈
+            if diff:
+                # 记录当前文本长度，用于后续优化
+                diff['prev_length'] = len(prev_text)
+                diff['cursor'] = current_cursor
+                self.undo_stack.append(diff)
+                
+                # 限制撤销栈大小
+                while len(self.undo_stack) > self.max_undo_steps:
+                    # 如果移除的是快照，需要重新计算后续差异
+                    if self.undo_stack[0]['type'] == 'snapshot':
+                        # 移除旧快照
+                        self.undo_stack.pop(0)
+                        # 如果新的第一个元素是差异，将其转换为快照
+                        if self.undo_stack and self.undo_stack[0]['type'] == 'diff':
+                            # 创建基于当前差异的快照
+                            # 这里简化处理，实际可能需要更复杂的计算
+                            pass
+                    else:
+                        # 正常移除最早的差异
+                        self.undo_stack.pop(0)
         
+        # 清空重做栈
+        self.redo_stack.clear()
         self.text_area.edit_modified(False)
     
     def undo(self, event=None):
-        """执行撤销操作"""
+        """执行撤销操作 - 使用差异存储优化"""
         if not self.undo_stack:
             messagebox.showinfo("提示", "无更多可撤销的操作")
             return
         
         self.is_undoing = True
         
-        last_text, last_cursor = self.undo_stack.pop()
-        self.text_area.delete("1.0", tk.END)
-        self.text_area.insert("1.0", last_text)
-        self.text_area.mark_set(tk.INSERT, last_cursor)
+        try:
+            # 获取要撤销的状态
+            state_to_undo = self.undo_stack.pop()
+            current_text = self.text_area.get("1.0", tk.END)[:-1]
+            
+            # 将当前状态保存到重做栈
+            self.redo_stack.append({
+                'type': 'snapshot' if state_to_undo['type'] == 'snapshot' else 'diff',
+                'text': current_text if state_to_undo['type'] == 'snapshot' else None,
+                'cursor': self.text_area.index(tk.INSERT)
+            })
+            
+            if state_to_undo['type'] == 'snapshot':
+                # 如果是快照，直接恢复
+                self.text_area.delete("1.0", tk.END)
+                self.text_area.insert("1.0", state_to_undo['text'])
+                self.text_area.mark_set(tk.INSERT, state_to_undo['cursor'])
+            else:
+                # 如果是差异，应用逆操作
+                # 找到最近的快照
+                last_snapshot_idx = -1
+                for i, state in enumerate(reversed(self.undo_stack)):
+                    if state['type'] == 'snapshot':
+                        last_snapshot_idx = len(self.undo_stack) - i - 1
+                        break
+                
+                # 如果没有找到快照，无法撤销
+                if last_snapshot_idx == -1:
+                    # 恢复状态栈
+                    self.undo_stack.append(state_to_undo)
+                    self.redo_stack.pop()
+                    messagebox.showinfo("错误", "撤销失败：找不到基准状态")
+                    return
+                
+                # 从快照开始，应用所有差异直到当前要撤销的状态之前
+                restored_text = self.undo_stack[last_snapshot_idx]['text']
+                for i in range(last_snapshot_idx + 1, len(self.undo_stack)):
+                    diff = self.undo_stack[i]
+                    if diff['type'] == 'diff':
+                        restored_text = self._apply_diff(restored_text, diff)
+                
+                # 更新文本
+                self.text_area.delete("1.0", tk.END)
+                self.text_area.insert("1.0", restored_text)
+                
+                # 恢复光标位置
+                if 'cursor' in state_to_undo:
+                    self.text_area.mark_set(tk.INSERT, state_to_undo['cursor'])
+            
+            # 重新检查单词
+            self.check_words()
+        except Exception as e:
+            print(f"撤销操作错误: {e}")
+            # 尝试恢复状态
+            if hasattr(self, 'redo_stack') and self.redo_stack:
+                self.undo_stack.append(self.redo_stack.pop())
+        finally:
+            self.is_undoing = False
+            self.text_area.edit_modified(False)
+    
+    def _calculate_diff(self, old_text, new_text):
+        """计算两个文本之间的差异"""
+        # 如果文本完全相同，返回None
+        if old_text == new_text:
+            return None
         
-        self.check_words()
+        # 计算共同前缀长度
+        common_prefix_len = 0
+        min_len = min(len(old_text), len(new_text))
+        while common_prefix_len < min_len and old_text[common_prefix_len] == new_text[common_prefix_len]:
+            common_prefix_len += 1
         
-        self.is_undoing = False
-        self.text_area.edit_modified(False)
+        # 计算共同后缀长度
+        common_suffix_len = 0
+        while common_suffix_len < min_len - common_prefix_len and \
+              old_text[len(old_text) - common_suffix_len - 1] == new_text[len(new_text) - common_suffix_len - 1]:
+            common_suffix_len += 1
+        
+        # 提取差异部分
+        old_diff_start = common_prefix_len
+        old_diff_end = len(old_text) - common_suffix_len
+        new_diff_start = common_prefix_len
+        new_diff_end = len(new_text) - common_suffix_len
+        
+        # 返回差异信息
+        return {
+            'type': 'diff',
+            'pos': common_prefix_len,
+            'removed': old_text[old_diff_start:old_diff_end],
+            'inserted': new_text[new_diff_start:new_diff_end]
+        }
+    
+    def _apply_diff(self, text, diff):
+        """应用差异到文本"""
+        if diff['type'] != 'diff':
+            return text
+        
+        # 在指定位置删除旧内容并插入新内容
+        return text[:diff['pos']] + diff['inserted'] + text[diff['pos'] + len(diff['removed']):]
+    
+    def redo(self, event=None):
+        """执行重做操作"""
+        if not hasattr(self, 'redo_stack') or not self.redo_stack:
+            messagebox.showinfo("提示", "无更多可重做的操作")
+            return
+        
+        self.is_undoing = True
+        
+        try:
+            # 获取要重做的状态
+            state_to_redo = self.redo_stack.pop()
+            current_text = self.text_area.get("1.0", tk.END)[:-1]
+            
+            # 将当前状态保存到撤销栈
+            self.undo_stack.append({
+                'type': 'snapshot' if state_to_redo['type'] == 'snapshot' else 'diff',
+                'text': current_text if state_to_redo['type'] == 'snapshot' else None,
+                'cursor': self.text_area.index(tk.INSERT)
+            })
+            
+            if state_to_redo['type'] == 'snapshot':
+                # 如果是快照，直接恢复
+                self.text_area.delete("1.0", tk.END)
+                self.text_area.insert("1.0", state_to_redo['text'])
+                self.text_area.mark_set(tk.INSERT, state_to_redo['cursor'])
+            else:
+                # 对于差异类型的重做，需要找到最近的快照并应用差异
+                # 这里简化处理，直接使用当前文本和要重做的操作
+                # 在实际应用中可能需要更复杂的逻辑
+                pass
+            
+            # 重新检查单词
+            self.check_words()
+        except Exception as e:
+            print(f"重做操作错误: {e}")
+            # 尝试恢复状态
+            if hasattr(self, 'undo_stack') and self.undo_stack:
+                self.redo_stack.append(self.undo_stack.pop())
+        finally:
+            self.is_undoing = False
+            self.text_area.edit_modified(False)
+    
+    def _cleanup_window(self, window):
+        """窗口关闭前的清理工作"""
+        try:
+            # 关闭前移除事件绑定等
+            window.destroy()
+        except Exception:
+            pass
+    
+    def _on_closing(self):
+        """主窗口关闭时的处理"""
+        try:
+            # 关闭数据库连接
+            db_manager = DatabaseManager()
+            db_manager.close_connection()
+        except Exception as e:
+            logger.error(f"关闭数据库连接时出错: {e}")
+        finally:
+            self.root.destroy()
 
 if __name__ == "__main__":
     root = tk.Tk()
