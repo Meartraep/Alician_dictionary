@@ -319,6 +319,12 @@ class UIBuilder:
         default_font = font.nametofont("TkDefaultFont")
         default_font.configure(family=Config.FONT_FAMILY, size=Config.DEFAULT_FONT_SIZE)
         self.root.option_add("*Font", default_font)
+        
+        # 配置PanedWindow样式，实现分隔线高亮效果
+        style = ttk.Style()
+        style.configure("TPanedwindow", background=Config.INFO_COLOR)
+        style.configure("TSash", background=Config.INFO_COLOR, sashthickness=8)
+        style.map("TSash", background=[("active", "#FFD700")])
 
     def create_main_window(self) -> None:
         self.root.title(Config.APP_TITLE)
@@ -337,10 +343,18 @@ class UIBuilder:
     def _create_main_frames(self) -> None:
         self.main_frame = ttk.Frame(self.root, padding="10")
         self.main_frame.pack(fill=tk.BOTH, expand=True)
-        self.left_frame = ttk.Frame(self.main_frame, padding="5")
-        self.right_frame = ttk.Frame(self.main_frame, padding="5")
-        self.left_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(0, 5))
-        self.right_frame.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True)
+        
+        # 使用PanedWindow实现左右两栏的宽度调整
+        self.paned_window = ttk.PanedWindow(self.main_frame, orient=tk.HORIZONTAL)
+        self.paned_window.pack(fill=tk.BOTH, expand=True)
+        
+        # 左侧查询结果栏
+        self.left_frame = ttk.Frame(self.paned_window, padding="5")
+        self.paned_window.add(self.left_frame, weight=1)
+        
+        # 右侧例句栏
+        self.right_frame = ttk.Frame(self.paned_window, padding="5")
+        self.paned_window.add(self.right_frame, weight=1)
 
     def _create_query_area(self) -> None:
         query_frame = ttk.Frame(self.left_frame)
@@ -367,23 +381,53 @@ class UIBuilder:
     def _create_results_area(self) -> None:
         result_frame = ttk.LabelFrame(self.left_frame, text="查询结果", padding="5")
         result_frame.pack(fill=tk.BOTH, expand=True)
-        self.results_canvas = tk.Canvas(result_frame)
-        self.results_scrollbar = ttk.Scrollbar(result_frame, orient="vertical", command=self.results_canvas.yview)
+        
+        # 创建主Canvas和滚动条框架
+        canvas_frame = ttk.Frame(result_frame)
+        canvas_frame.pack(fill=tk.BOTH, expand=True)
+        
+        self.results_canvas = tk.Canvas(canvas_frame)
+        self.results_scrollbar_y = ttk.Scrollbar(canvas_frame, orient="vertical", command=self.results_canvas.yview)
+        self.results_scrollbar_x = ttk.Scrollbar(canvas_frame, orient="horizontal", command=self.results_canvas.xview)
         self.results_container = ttk.Frame(self.results_canvas)
         
+        # 配置Canvas滚动区域和滚动条
         self.results_container.bind("<Configure>", lambda e: self.results_canvas.configure(scrollregion=self.results_canvas.bbox("all")))
+        self.results_canvas.bind("<Configure>", lambda e: self.results_canvas.configure(scrollregion=self.results_canvas.bbox("all")))
         self.results_canvas.create_window((0, 0), window=self.results_container, anchor="nw")
-        self.results_canvas.configure(yscrollcommand=self.results_scrollbar.set)
+        self.results_canvas.configure(yscrollcommand=self.results_scrollbar_y.set, xscrollcommand=self.results_scrollbar_x.set)
         
         # 存储事件绑定，以便后续清理
         self._mouse_wheel_bindings = []
+        # 为整个左侧栏框架和canvas添加鼠标滚轮事件绑定，确保整个左侧栏区域都能响应
         for evt in ["<MouseWheel>", "<Button-4>", "<Button-5>"]:
-            # 存储绑定ID
+            # 为left_frame添加事件绑定
+            binding_id = self.left_frame.bind(evt, self.app.on_mouse_wheel)
+            self._mouse_wheel_bindings.append((self.left_frame, evt, binding_id))
+            # 为canvas添加事件绑定
             binding_id = self.results_canvas.bind(evt, self.app.on_mouse_wheel)
             self._mouse_wheel_bindings.append((self.results_canvas, evt, binding_id))
+            # 为results_container添加事件绑定
+            binding_id = self.results_container.bind(evt, self.app.on_mouse_wheel)
+            self._mouse_wheel_bindings.append((self.results_container, evt, binding_id))
         
-        self.results_canvas.pack(side="left", fill="both", expand=True)
-        self.results_scrollbar.pack(side="right", fill="y")
+        # 绑定键盘左右箭头事件
+        self.results_canvas.bind("<Left>", lambda e: self.results_canvas.xview_scroll(-1, "units"))
+        self.results_canvas.bind("<Right>", lambda e: self.results_canvas.xview_scroll(1, "units"))
+        # 绑定键盘上下箭头事件，用于控制垂直滚动
+        self.results_canvas.bind("<Up>", lambda e: self.results_canvas.yview_scroll(-1, "units"))
+        self.results_canvas.bind("<Down>", lambda e: self.results_canvas.yview_scroll(1, "units"))
+        # 为results_container添加焦点绑定，确保键盘事件能被捕获
+        self.results_container.bind("<FocusIn>", lambda e: self.results_canvas.focus_set())
+        
+        # 布局组件
+        self.results_canvas.grid(row=0, column=0, sticky="nsew")
+        self.results_scrollbar_y.grid(row=0, column=1, sticky="ns")
+        self.results_scrollbar_x.grid(row=1, column=0, sticky="ew")
+        
+        # 配置grid权重，使Canvas能自动扩展
+        canvas_frame.grid_rowconfigure(0, weight=1)
+        canvas_frame.grid_columnconfigure(0, weight=1)
         
         # 存储引用到主应用
         self.app._result_canvas = self.results_canvas
@@ -395,21 +439,48 @@ class UIBuilder:
         
         self.examples_frame = ttk.Frame(self.right_frame)
         self.examples_frame.pack(fill=tk.BOTH, expand=True)
-        self.examples_canvas = tk.Canvas(self.examples_frame)
-        self.examples_scrollbar = ttk.Scrollbar(self.examples_frame, orient="vertical", command=self.examples_canvas.yview)
+        
+        # 创建主Canvas和滚动条框架
+        canvas_frame = ttk.Frame(self.examples_frame)
+        canvas_frame.pack(fill=tk.BOTH, expand=True)
+        
+        self.examples_canvas = tk.Canvas(canvas_frame)
+        self.examples_scrollbar_y = ttk.Scrollbar(canvas_frame, orient="vertical", command=self.examples_canvas.yview)
+        self.examples_scrollbar_x = ttk.Scrollbar(canvas_frame, orient="horizontal", command=self.examples_canvas.xview)
         self.examples_content = ttk.Frame(self.examples_canvas)
         
+        # 配置Canvas滚动区域和滚动条
         self.examples_content.bind("<Configure>", lambda e: self.examples_canvas.configure(scrollregion=self.examples_canvas.bbox("all")))
+        self.examples_canvas.bind("<Configure>", lambda e: self.examples_canvas.configure(scrollregion=self.examples_canvas.bbox("all")))
         self.examples_canvas.create_window((0, 0), window=self.examples_content, anchor="nw")
-        self.examples_canvas.configure(yscrollcommand=self.examples_scrollbar.set)
+        self.examples_canvas.configure(yscrollcommand=self.examples_scrollbar_y.set, xscrollcommand=self.examples_scrollbar_x.set)
         
-        # 只在canvas上绑定鼠标滚轮事件，避免重复绑定到frame
+        # 为整个examples_frame和canvas添加鼠标滚轮事件绑定，确保整个右侧栏区域都能响应
         for evt in ["<MouseWheel>", "<Button-4>", "<Button-5>"]:
+            binding_id = self.examples_frame.bind(evt, self.app.on_mouse_wheel)
+            self._mouse_wheel_bindings.append((self.examples_frame, evt, binding_id))
             binding_id = self.examples_canvas.bind(evt, self.app.on_mouse_wheel)
             self._mouse_wheel_bindings.append((self.examples_canvas, evt, binding_id))
+            binding_id = self.examples_content.bind(evt, self.app.on_mouse_wheel)
+            self._mouse_wheel_bindings.append((self.examples_content, evt, binding_id))
         
-        self.examples_canvas.pack(side="left", fill="both", expand=True)
-        self.examples_scrollbar.pack(side="right", fill="y")
+        # 绑定键盘左右箭头事件
+        self.examples_canvas.bind("<Left>", lambda e: self.examples_canvas.xview_scroll(-1, "units"))
+        self.examples_canvas.bind("<Right>", lambda e: self.examples_canvas.xview_scroll(1, "units"))
+        # 绑定键盘上下箭头事件，用于控制垂直滚动
+        self.examples_canvas.bind("<Up>", lambda e: self.examples_canvas.yview_scroll(-1, "units"))
+        self.examples_canvas.bind("<Down>", lambda e: self.examples_canvas.yview_scroll(1, "units"))
+        # 为examples_content添加焦点绑定，确保键盘事件能被捕获
+        self.examples_content.bind("<FocusIn>", lambda e: self.examples_canvas.focus_set())
+        
+        # 布局组件
+        self.examples_canvas.grid(row=0, column=0, sticky="nsew")
+        self.examples_scrollbar_y.grid(row=0, column=1, sticky="ns")
+        self.examples_scrollbar_x.grid(row=1, column=0, sticky="ew")
+        
+        # 配置grid权重，使Canvas能自动扩展
+        canvas_frame.grid_rowconfigure(0, weight=1)
+        canvas_frame.grid_columnconfigure(0, weight=1)
         
         self.progress_label = ttk.Label(self.right_frame, text="", font=(Config.FONT_FAMILY, Config.LABEL_FONT_SIZE))
         self.progress_label.pack(anchor=tk.CENTER, pady=(5, 0))
@@ -449,17 +520,41 @@ class UIBuilder:
         frame = ttk.Frame(self.results_container)
         frame.pack(fill=tk.X, padx=5, pady=3)
         
+        # 设置事件标签，支持事件冒泡
+        frame.bindtags((frame, self.results_container, "all"))
+        
         word_frame = ttk.Frame(frame)
         word_frame.pack(side=tk.LEFT, fill=tk.X, expand=True)
         
-        if result_type == "alice":
-            ttk.Label(word_frame, text=f"爱丽丝语: {word}", font=(Config.FONT_FAMILY, Config.DEFAULT_FONT_SIZE, "bold")).pack(anchor=tk.W)
-            ttk.Label(word_frame, text=f"中文翻译: {explanation}", wraplength=400).pack(anchor=tk.W)
-        else:
-            ttk.Label(word_frame, text=f"中文: {explanation}", font=(Config.FONT_FAMILY, Config.DEFAULT_FONT_SIZE, "bold")).pack(anchor=tk.W)
-            ttk.Label(word_frame, text=f"爱丽丝语: {word}", wraplength=400).pack(anchor=tk.W)
+        # 添加滚轮事件绑定
+        for evt in ["<MouseWheel>", "<Button-4>", "<Button-5>"]:
+            frame.bind(evt, self.app.on_mouse_wheel)
+            word_frame.bind(evt, self.app.on_mouse_wheel)
         
-        ttk.Button(frame, text="查询例句", command=lambda w=word: self.app.start_show_examples(w)).pack(side=tk.RIGHT, padx=5)
+        if result_type == "alice":
+            label1 = ttk.Label(word_frame, text=f"爱丽丝语: {word}", font=(Config.FONT_FAMILY, Config.DEFAULT_FONT_SIZE, "bold"))
+            label1.pack(anchor=tk.W)
+            label2 = ttk.Label(word_frame, text=f"中文翻译: {explanation}", wraplength=400)
+            label2.pack(anchor=tk.W)
+            # 为标签添加滚轮事件绑定
+            for evt in ["<MouseWheel>", "<Button-4>", "<Button-5>"]:
+                label1.bind(evt, self.app.on_mouse_wheel)
+                label2.bind(evt, self.app.on_mouse_wheel)
+        else:
+            label1 = ttk.Label(word_frame, text=f"中文: {explanation}", font=(Config.FONT_FAMILY, Config.DEFAULT_FONT_SIZE, "bold"))
+            label1.pack(anchor=tk.W)
+            label2 = ttk.Label(word_frame, text=f"爱丽丝语: {word}", wraplength=400)
+            label2.pack(anchor=tk.W)
+            # 为标签添加滚轮事件绑定
+            for evt in ["<MouseWheel>", "<Button-4>", "<Button-5>"]:
+                label1.bind(evt, self.app.on_mouse_wheel)
+                label2.bind(evt, self.app.on_mouse_wheel)
+        
+        button = ttk.Button(frame, text="查询例句", command=lambda w=word: self.app.start_show_examples(w))
+        button.pack(side=tk.RIGHT, padx=5)
+        # 为按钮添加滚轮事件绑定
+        for evt in ["<MouseWheel>", "<Button-4>", "<Button-5>"]:
+            button.bind(evt, self.app.on_mouse_wheel)
 
     def add_no_results_message(self, query: str) -> None:
         ttk.Label(self.results_container, text=f"未找到 '{query}' 的翻译", font=(Config.FONT_FAMILY, Config.DEFAULT_FONT_SIZE)).pack(anchor=tk.W, pady=5)
@@ -479,8 +574,11 @@ class UIBuilder:
         # 减少不必要的事件绑定，使用事件冒泡
         frame.bindtags((frame, self.examples_content, "all"))
         
-        ttk.Button(frame, text="查看完整歌词", command=lambda idx=index, t=example['title'], a=example['album'], l=example['lyric'], p=example['paragraph']: self.app.show_full_lyric(idx, t, a, l, p)).pack(anchor=tk.W, pady=(0, 2))
-        ttk.Label(frame, text=f"来源: {example['album']} - {example['title']}", font=(Config.FONT_FAMILY, Config.LABEL_FONT_SIZE), foreground=Config.INFO_COLOR).pack(anchor=tk.W, pady=(0, 5))
+        button = ttk.Button(frame, text="查看完整歌词", command=lambda idx=index, t=example['title'], a=example['album'], l=example['lyric'], p=example['paragraph']: self.app.show_full_lyric(idx, t, a, l, p))
+        button.pack(anchor=tk.W, pady=(0, 2))
+        
+        label = ttk.Label(frame, text=f"来源: {example['album']} - {example['title']}", font=(Config.FONT_FAMILY, Config.LABEL_FONT_SIZE), foreground=Config.INFO_COLOR)
+        label.pack(anchor=tk.W, pady=(0, 5))
         
         text_widget = scrolledtext.ScrolledText(frame, wrap=tk.WORD, font=(Config.FONT_FAMILY, Config.DEFAULT_FONT_SIZE))
         text_widget.pack(fill=tk.X, expand=True)
@@ -489,6 +587,13 @@ class UIBuilder:
         
         line_count = example['paragraph'].count('\n') + 1
         text_widget.configure(height=max(line_count, Config.EXAMPLE_MIN_HEIGHT), state=tk.DISABLED)
+        
+        # 为所有子组件添加鼠标滚轮事件绑定
+        for evt in ["<MouseWheel>", "<Button-4>", "<Button-5>"]:
+            frame.bind(evt, self.app.on_mouse_wheel)
+            button.bind(evt, self.app.on_mouse_wheel)
+            label.bind(evt, self.app.on_mouse_wheel)
+            text_widget.bind(evt, self.app.on_mouse_wheel)
 
     def add_no_examples_message(self, word: str) -> None:
         ttk.Label(self.examples_content, text=f"未找到包含 '{word}' 的例句").pack(pady=10)
@@ -522,29 +627,77 @@ class AliceDictionaryApp:
         self._examples_canvas = None
 
     def on_mouse_wheel(self, event: tk.Event) -> None:
-        # 优化鼠标滚轮事件处理，避免不必要的计算
+        # 优化鼠标滚轮事件处理，直接判断事件源所属区域
         widget = event.widget
         
-        # 检查是否在examples canvas上
-        if widget == self.ui.examples_canvas or widget.master == self.ui.examples_canvas:
+        # 快速判断：如果是examples_content或其后代，滚动examples_canvas
+        try:
+            # 检查widget是否在right_frame及其子元素中
+            current_widget = widget
+            while current_widget:
+                if current_widget == self.ui.right_frame:
+                    # 是右侧区域，滚动examples_canvas
+                    self._handle_scroll(event, self.ui.examples_canvas)
+                    return "break"  # 阻止事件继续传播
+                elif current_widget == self.ui.left_frame:
+                    # 是左侧区域，滚动results_canvas
+                    self._handle_scroll(event, self.ui.results_canvas)
+                    return "break"  # 阻止事件继续传播
+                # 继续向上查找父组件
+                current_widget = current_widget.master
+        except Exception:
+            # 如果出现异常，使用备选方案
+            pass
+        
+        # 备选方案：使用_is_widget_inside方法
+        if self._is_widget_inside(widget, self.ui.examples_canvas):
             self._handle_scroll(event, self.ui.examples_canvas)
             return "break"  # 阻止事件继续传播
-        # 检查是否在results canvas上
-        elif widget == self.ui.results_canvas or widget.master == self.ui.results_canvas:
+        elif self._is_widget_inside(widget, self.ui.results_canvas):
             self._handle_scroll(event, self.ui.results_canvas)
             return "break"  # 阻止事件继续传播
 
     def _is_widget_inside(self, widget: tk.Widget, container: tk.Canvas) -> bool:
+        """检查widget是否在container Canvas内，处理嵌套widget情况"""
         if widget == container:
             return True
+        
         try:
-            geom = widget.winfo_geometry().split('+')
-            if len(geom) < 3:
+            # 获取container的根坐标和尺寸
+            container_x = container.winfo_rootx()
+            container_y = container.winfo_rooty()
+            container_width = container.winfo_width()
+            container_height = container.winfo_height()
+            container_x2 = container_x + container_width
+            container_y2 = container_y + container_height
+            
+            # 检查widget的根坐标是否在container内
+            widget_x = widget.winfo_rootx()
+            widget_y = widget.winfo_rooty()
+            widget_width = widget.winfo_width()
+            widget_height = widget.winfo_height()
+            widget_x2 = widget_x + widget_width
+            widget_y2 = widget_y + widget_height
+            
+            # 检查两个矩形是否有重叠
+            if (widget_x2 < container_x or widget_x > container_x2 or
+                widget_y2 < container_y or widget_y > container_y2):
                 return False
-            wx, wy = int(geom[1]), int(geom[2])
-            cx1, cy1 = container.winfo_rootx(), container.winfo_rooty()
-            cx2, cy2 = cx1 + container.winfo_width(), cy1 + container.winfo_height()
-            return cx1 <= wx <= cx2 and cy1 <= wy <= cy2
+            
+            # 遍历widget的父元素链，检查是否与container相关
+            current = widget
+            while current.master:
+                if current.master == container or current.master.winfo_parent() == container.winfo_id():
+                    return True
+                current = current.master
+            
+            # 特殊处理Canvas内的Frame容器
+            if hasattr(container, 'winfo_children'):
+                for child in container.winfo_children():
+                    if isinstance(child, tk.Frame) and self._is_widget_inside(widget, child):
+                        return True
+            
+            return True
         except Exception:
             return False
 
