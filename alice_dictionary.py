@@ -10,17 +10,7 @@ from collections import defaultdict
 from typing import List, Dict, Tuple, Optional
 
 
-# 新增：获取资源文件路径的函数，用于支持打包
-def get_resource_path(relative_path):
-    """获取资源文件的绝对路径，支持开发环境和打包后的环境"""
-    try:
-        # PyInstaller 创建临时文件夹，并将路径存储在 _MEIPASS 中
-        base_path = sys._MEIPASS
-    except Exception:
-        # 开发环境中使用当前文件所在目录
-        base_path = os.path.abspath(".")
-    
-    return os.path.join(base_path, relative_path)
+
 
 
 class Config:
@@ -49,8 +39,7 @@ class Config:
     HIGHLIGHT_COLOR = "#FFD700"
     CURRENT_HIGHLIGHT_COLOR = "#FFFFCC"
     INFO_COLOR = "#666666"
-    # 新增：使用资源路径函数获取数据库路径
-    CURRENT_DB = get_resource_path(DB_NAME)
+    CURRENT_DB = DB_NAME
 
 
 class DatabaseHandler:
