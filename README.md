@@ -1,4 +1,4 @@
-> All code was wrote by AI coder and All programs are powered by Python 3.17 or later.
+> All code was wrote by AI coder and All programs are powered by Python 3.13 or later.
 # Alician_dictionary
 Helper is a tool kit which can help you learn and write Alician.
 It has a graphical interface, and no external libraries required.
