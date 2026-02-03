@@ -1,3 +1,6 @@
+# 原作者：Meartraep
+# 项目仓库：https://github.com/Meartraep/Alician_dictionary
+# 协议：CC BY-NC 4.0 | 禁止商用，改编需保留署名
 import sys
 
 
