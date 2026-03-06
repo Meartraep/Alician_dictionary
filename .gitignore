@@ -1,3 +1,4 @@
 search_history.json
 README.md
-LICENSE
+LICENSE*.pyc
+__pycache__/
