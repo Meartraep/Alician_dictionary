@@ -9,6 +9,7 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 import tkinter as tk
 import logging
+from update_checker import UpdateChecker
 from writing_assistant.database_manager import DatabaseManager
 
 # 导入所有模块
@@ -185,8 +186,28 @@ class WordCheckerApp:
                 text=f"状态：已检查 - 未知单词: {unknown_count}个 - 已加载 {len(self.highlight_manager.known_words)} 个已知单词（{case_status}）"
             )
 
+def on_closing(root, update_checker):
+    """窗口关闭回调，执行更新操作"""
+    print("窗口关闭中，检查是否需要更新...")
+    # 执行更新
+    update_checker.perform_update(root)
+    # 关闭窗口
+    root.destroy()
+
 # 主程序入口
 if __name__ == "__main__":
+    # 检查更新
+    local_db_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "translated.db")
+    update_checker = UpdateChecker(local_db_path)
+    
+    # 创建根窗口
     root = tk.Tk()
+    
+    # 启动后台检查
+    update_checker.start_background_check()
+    
+    # 绑定关闭事件
+    root.protocol("WM_DELETE_WINDOW", lambda: on_closing(root, update_checker))
+    
     app = WordCheckerApp(root)
     root.mainloop()
