@@ -9,9 +9,22 @@
     dictLeft: "ui.dict.leftRatio",
     writingMain: "ui.writing.mainRatio",
     writingTop: "ui.writing.topRatio",
+    dictSnapshot: "ui.dictionary.snapshot",
+    writingSnapshot: "ui.writing.snapshot",
   };
 
+  function getWindowParams() {
+    const source = window.location.search || window.location.hash.replace(/^#/, "");
+    return new URLSearchParams(source);
+  }
+
+  const WINDOW_PARAMS = getWindowParams();
+  const NATIVE_APP_ID = WINDOW_PARAMS.get("app");
+  const IS_NATIVE_DETACHED = WINDOW_PARAMS.get("window") === "detached" && APP_IDS.includes(NATIVE_APP_ID);
+
   const state = {
+    isNativeDetached: IS_NATIVE_DETACHED,
+    nativeAppId: IS_NATIVE_DETACHED ? NATIVE_APP_ID : null,
     activeDocked: "dictionary",
     zIndexSeed: 30,
     dragTabAppId: null,
@@ -73,6 +86,23 @@
     }
   }
 
+  function saveJson(key, value) {
+    try {
+      localStorage.setItem(key, JSON.stringify(value));
+    } catch (_) {
+      // ignore
+    }
+  }
+
+  function loadJson(key, fallback) {
+    try {
+      const raw = localStorage.getItem(key);
+      return raw ? JSON.parse(raw) : fallback;
+    } catch (_) {
+      return fallback;
+    }
+  }
+
   let pywebviewApiReady = null;
 
   function getPywebviewApi() {
@@ -129,10 +159,20 @@
     return pywebviewApiReady;
   }
 
+  async function waitForPywebviewMethod(method, timeoutMs = 8000) {
+    const started = Date.now();
+    let api = await waitForPywebviewApi(timeoutMs);
+    while (Date.now() - started < timeoutMs) {
+      const fn = api?.[method];
+      if (typeof fn === "function") return fn.bind(api);
+      await new Promise((resolve) => window.setTimeout(resolve, 50));
+      api = getPywebviewApi() || api;
+    }
+    throw new Error(`Python API method unavailable: ${method}`);
+  }
+
   async function callApi(method, ...args) {
-    const api = await waitForPywebviewApi();
-    const fn = api?.[method];
-    if (typeof fn !== "function") throw new Error(`Python API method unavailable: ${method}`);
+    const fn = await waitForPywebviewMethod(method);
     return fn(...args);
   }
 
@@ -158,6 +198,17 @@
     for (const id of ids) els[id] = document.getElementById(id);
   }
 
+  function configureWindowMode() {
+    if (!state.isNativeDetached) return;
+    document.body.classList.add("native-detached-window");
+    state.activeDocked = state.nativeAppId;
+    for (const appId of APP_IDS) {
+      if (appId !== state.nativeAppId) {
+        state.apps[appId].detached = true;
+      }
+    }
+  }
+
   function showModal(title, html, onBind) {
     els.modalTitle.textContent = title;
     els.modalBody.innerHTML = html;
@@ -179,6 +230,14 @@
   }
 
   function renderDockPanels() {
+    if (state.isNativeDetached) {
+      for (const appId of APP_IDS) {
+        const panel = getAppPanel(appId);
+        panel.classList.toggle("show", appId === state.nativeAppId);
+      }
+      return;
+    }
+
     for (const appId of APP_IDS) {
       const panel = getAppPanel(appId);
       panel.classList.toggle("show", !state.apps[appId].detached && state.activeDocked === appId);
@@ -186,6 +245,7 @@
   }
 
   function updateTabVisualState() {
+    if (state.isNativeDetached) return;
     for (const appId of APP_IDS) {
       const tab = getTabButton(appId);
       tab.classList.toggle("detached", state.apps[appId].detached);
@@ -194,6 +254,7 @@
   }
 
   function activateDocked(appId) {
+    if (state.isNativeDetached) return;
     if (state.apps[appId].detached) {
       const win = state.apps[appId].floatingWindow;
       if (win) bringFloatingToFront(win);
@@ -208,6 +269,56 @@
     state.zIndexSeed += 1;
     win.style.zIndex = String(state.zIndexSeed);
   }
+
+  function chooseNextDockedApp(exceptAppId) {
+    return APP_IDS.find((id) => id !== exceptAppId && !state.apps[id].detached) || null;
+  }
+
+  function saveModuleSnapshot(appId) {
+    if (appId === "dictionary") {
+      saveJson(STORAGE_KEYS.dictSnapshot, {
+        query: els.dictQuery?.value || "",
+        exact: Boolean(els.dictExact?.checked),
+      });
+      return;
+    }
+    if (appId === "writing") {
+      saveJson(STORAGE_KEYS.writingSnapshot, {
+        text: getEditorText(),
+        dictQuery: els.writingDictQuery?.value || "",
+        dictExact: Boolean(els.writingDictExact?.checked),
+      });
+    }
+  }
+
+  async function detachAppToNativeWindow(appId, event) {
+    if (state.isNativeDetached || state.apps[appId]?.detached) return;
+    saveModuleSnapshot(appId);
+    try {
+      const ret = await callApi("detach_native_window", appId, Math.round(event.screenX), Math.round(event.screenY));
+      toast(ret?.message || "已打开独立窗口。", ret?.ok ? "info" : "warn");
+      if (!ret?.ok) return;
+      state.apps[appId].detached = true;
+      state.apps[appId].floatingWindow = null;
+      if (state.activeDocked === appId) {
+        state.activeDocked = chooseNextDockedApp(appId) || appId;
+      }
+      renderDockPanels();
+      updateTabVisualState();
+    } catch (err) {
+      toast(`打开独立窗口失败：${err.message}`, "warn", 3200);
+    }
+  }
+
+  window.__nativeAppReturned = (appId) => {
+    if (!APP_IDS.includes(appId)) return;
+    state.apps[appId].detached = false;
+    state.apps[appId].floatingWindow = null;
+    state.activeDocked = appId;
+    renderDockPanels();
+    updateTabVisualState();
+    restoreModuleSnapshot(appId, true);
+  };
 
   function bindFloatingDragging(win, head, appId) {
     let dragging = false;
@@ -302,6 +413,7 @@
   }
 
   function bindTabs() {
+    if (state.isNativeDetached) return;
     const tabs = els.tabBar.querySelectorAll(".tab-item");
     tabs.forEach((tab) => {
       const appId = tab.dataset.app;
@@ -315,7 +427,7 @@
         if (!id) return;
         const tr = els.tabBar.getBoundingClientRect();
         const inTabBar = e.clientX >= tr.left && e.clientX <= tr.right && e.clientY >= tr.top && e.clientY <= tr.bottom;
-        if (!inTabBar) detachAppFromDock(id, e.clientX, e.clientY);
+        if (!inTabBar) detachAppToNativeWindow(id, e);
       });
     });
   }
@@ -397,8 +509,10 @@
   async function runDictionarySearch(query, exactMatch) {
     const q = String(query ?? els.dictQuery.value).trim();
     if (!q) return toast("请输入要查询的词。", "warn");
+    const exact = Boolean(exactMatch ?? els.dictExact.checked);
+    saveJson(STORAGE_KEYS.dictSnapshot, { query: q, exact });
     try {
-      const ret = await callApi("dictionary_search", q, Boolean(exactMatch ?? els.dictExact.checked));
+      const ret = await callApi("dictionary_search", q, exact);
       renderDictionaryResults(ret);
     } catch (err) {
       toast(`查询失败：${err.message}`, "warn", 3200);
@@ -666,6 +780,30 @@
 
   function getEditorText() {
     return (els.writingEditor.innerText || "").replace(/\r/g, "");
+  }
+
+  async function restoreModuleSnapshot(appId, shouldRunSearch = false) {
+    if (appId === "dictionary") {
+      const snapshot = loadJson(STORAGE_KEYS.dictSnapshot, {});
+      if (typeof snapshot.query === "string") els.dictQuery.value = snapshot.query;
+      els.dictExact.checked = Boolean(snapshot.exact);
+      if (shouldRunSearch && String(snapshot.query || "").trim()) {
+        await runDictionarySearch(snapshot.query, Boolean(snapshot.exact));
+      }
+      return;
+    }
+
+    if (appId === "writing") {
+      const snapshot = loadJson(STORAGE_KEYS.writingSnapshot, {});
+      if (typeof snapshot.text === "string" && getEditorText() !== snapshot.text) {
+        els.writingEditor.textContent = snapshot.text;
+        state.writing.selectedSidebarKey = "";
+        closeInfoPopup();
+      }
+      if (typeof snapshot.dictQuery === "string") els.writingDictQuery.value = snapshot.dictQuery;
+      els.writingDictExact.checked = Boolean(snapshot.dictExact);
+      if (shouldRunSearch) await runWritingCheck(true);
+    }
   }
 
   function locateDomPointByTextOffset(root, targetOffset) {
@@ -1030,12 +1168,14 @@
     els.writingEditor.addEventListener("compositionend", () => {
       state.writing.isComposing = false;
       closeInfoPopup();
+      saveModuleSnapshot("writing");
       runWritingCheck(false);
     });
 
     els.writingEditor.addEventListener("input", (e) => {
       closeInfoPopup();
       if (state.writing.isComposing || e.isComposing) return;
+      saveModuleSnapshot("writing");
       runWritingCheck(false);
     });
 
@@ -1100,6 +1240,7 @@
       els.writingEditor.textContent = text;
       state.writing.selectedSidebarKey = "";
       closeInfoPopup();
+      saveModuleSnapshot("writing");
       await runWritingCheck(true);
       toast(`已导入：${file.name}`);
     });
@@ -1167,6 +1308,16 @@
     els.writingDictSearchBtn.addEventListener("click", async () => {
       const query = String(els.writingDictQuery.value || "").trim();
       if (!query) return;
+      saveModuleSnapshot("writing");
+      if (state.isNativeDetached) {
+        saveJson(STORAGE_KEYS.dictSnapshot, { query, exact: Boolean(els.writingDictExact.checked) });
+        try {
+          await callApi("detach_native_window", "dictionary", Math.round(window.screenX + 60), Math.round(window.screenY + 60));
+        } catch (err) {
+          toast(`打开词典窗口失败：${err.message}`, "warn", 3200);
+        }
+        return;
+      }
       state.activeDocked = "dictionary";
       renderDockPanels();
       updateTabVisualState();
@@ -1183,8 +1334,13 @@
       els.writingStatus.textContent = ret?.writing_status || "";
       renderDictionaryHistory(ret?.dictionary_history || []);
 
-      const initial = ret?.initial_tab === "writing" ? "writing" : "dictionary";
-      activateDocked(initial);
+      if (!state.isNativeDetached) {
+        const initial = ret?.initial_tab === "writing" ? "writing" : "dictionary";
+        activateDocked(initial);
+      } else {
+        renderDockPanels();
+        await restoreModuleSnapshot(state.nativeAppId, state.nativeAppId === "dictionary");
+      }
       if (ret?.startup_query) {
         els.dictQuery.value = ret.startup_query;
         els.dictExact.checked = Boolean(ret.startup_exact);
@@ -1201,10 +1357,18 @@
     els.modalRoot.addEventListener("click", (e) => {
       if (e.target === els.modalRoot) closeModal();
     });
+
+    window.addEventListener("storage", (e) => {
+      if (state.isNativeDetached) return;
+      if (e.key === STORAGE_KEYS.writingSnapshot && state.apps.writing.detached) {
+        restoreModuleSnapshot("writing", false);
+      }
+    });
   }
 
   function init() {
     bindBaseElements();
+    configureWindowMode();
     bindGlobal();
     bindTabs();
     bindSplitters();

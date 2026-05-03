@@ -1,4 +1,12 @@
-search_history.json
-README.md
-LICENSE*.pyc
-__pycache__/
+*
+!*/
+!.gitignore
+
+!*.py
+!*.js
+!*.css
+!*.html
+!*.md
+!*.log
+!*.txt
+!*.json

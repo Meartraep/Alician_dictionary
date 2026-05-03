@@ -83,6 +83,18 @@ body {
   padding: 12px;
 }
 
+body.native-detached-window .top-strip {
+  display: none;
+}
+
+body.native-detached-window .workspace {
+  padding: 10px;
+}
+
+body.splitter-active {
+  user-select: none;
+}
+
 .dock-host {
   width: 100%;
   height: 100%;
@@ -151,6 +163,7 @@ button {
   cursor: pointer;
   padding: 8px 12px;
   font-size: 13px;
+  user-select: none;
 }
 
 button.ghost {
@@ -194,7 +207,7 @@ button.small {
 
 .dictionary-layout {
   display: grid;
-  grid-template-columns: minmax(320px, var(--dict-left)) 8px minmax(320px, 1fr);
+  grid-template-columns: minmax(96px, var(--dict-left)) 8px minmax(96px, 1fr);
   gap: 0;
   min-height: 0;
   flex: 1;
@@ -318,7 +331,7 @@ button.small {
 
 .writing-workspace {
   display: grid;
-  grid-template-rows: minmax(220px, var(--writing-top)) 8px minmax(120px, 1fr);
+  grid-template-rows: minmax(96px, var(--writing-top)) 8px minmax(64px, 1fr);
   min-height: 0;
   flex: 1;
 }
@@ -326,7 +339,7 @@ button.small {
 .writing-top {
   min-height: 0;
   display: grid;
-  grid-template-columns: minmax(340px, var(--writing-main)) 8px minmax(220px, 1fr);
+  grid-template-columns: minmax(120px, var(--writing-main)) 8px minmax(100px, 1fr);
 }
 
 .writing-main,
@@ -569,6 +582,13 @@ button.small {
   user-select: none;
 }
 
+#panel-dictionary,
+#panel-dictionary :not(button),
+.modal-card,
+.modal-card :not(button) {
+  user-select: text;
+}
+
 .info-popup {
   position: fixed;
   z-index: 520;
@@ -653,6 +673,7 @@ button.small {
   width: 100%;
   min-height: 260px;
   resize: vertical;
+  user-select: text;
 }
 
 .lyric-view {
@@ -666,6 +687,7 @@ button.small {
   background: #fcfdff;
   white-space: pre-wrap;
   line-height: 1.52;
+  user-select: text;
 }
 
 .lyric-paragraph-focus {
