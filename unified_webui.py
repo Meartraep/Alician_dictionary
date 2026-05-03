@@ -219,9 +219,9 @@ class DictionaryService:
     def update_song_lyric(self, title: str, album: str, new_lyric: str) -> Dict[str, Any]:
         normalized_title = (title or "").strip()
         normalized_album = (album or "").strip()
-        lyric = (new_lyric or "").strip()
+        lyric = new_lyric or ""
 
-        if not normalized_title or not lyric:
+        if not normalized_title or not lyric.strip():
             return {"ok": False, "message": "标题和歌词不能为空。"}
 
         with self._lock:
@@ -563,6 +563,8 @@ class UnifiedAPI:
         self.initial_tab = initial_tab if initial_tab in {"dictionary", "writing"} else "dictionary"
         self.startup_query = (startup_query or "").strip()
         self.startup_exact = bool(startup_exact)
+        self._main_window = None
+        self._detached_windows: Dict[str, Any] = {}
         self._closed = False
         self._tasks: "queue.Queue[Optional[Tuple[Any, Tuple[Any, ...], Dict[str, Any], Dict[str, Any], threading.Event]]]" = queue.Queue()
         self._worker_ready = threading.Event()
@@ -641,8 +643,65 @@ class UnifiedAPI:
             "writing_status": self.writing_service.get_status_message(),
         }
 
+    def set_main_window(self, window: Any) -> None:
+        self._main_window = window
+
     def bootstrap(self) -> Dict[str, Any]:
         return self._invoke(self._bootstrap_impl)
+
+    def detach_native_window(self, app_id: str, x: Optional[int] = None, y: Optional[int] = None) -> Dict[str, Any]:
+        app = app_id if app_id in {"dictionary", "writing"} else ""
+        if not app:
+            return {"ok": False, "message": "未知模块。"}
+
+        with self._lock:
+            existing = self._detached_windows.get(app)
+            if existing is not None:
+                try:
+                    existing.show()
+                except Exception:
+                    pass
+                return {"ok": True, "message": "窗口已打开。"}
+
+        index_path = PROJECT_ROOT / "webui" / "index.html"
+        url = f"{index_path.as_uri()}#window=detached&app={app}"
+        title = "词典工具" if app == "dictionary" else "写作助手"
+
+        try:
+            win = webview.create_window(
+                title=title,
+                url=url,
+                js_api=self,
+                width=980 if app == "dictionary" else 1040,
+                height=720,
+                x=int(x) if x is not None else None,
+                y=int(y) if y is not None else None,
+                resizable=True,
+                min_size=(520, 360),
+                text_select=True,
+            )
+        except Exception as exc:
+            return {"ok": False, "message": f"打开独立窗口失败: {exc}"}
+
+        if win is None:
+            return {"ok": False, "message": "打开独立窗口失败。"}
+
+        with self._lock:
+            self._detached_windows[app] = win
+
+        def on_closed() -> None:
+            with self._lock:
+                if self._detached_windows.get(app) is win:
+                    self._detached_windows.pop(app, None)
+                main_window = self._main_window
+            if main_window is not None:
+                try:
+                    main_window.evaluate_js(f"window.__nativeAppReturned && window.__nativeAppReturned({app!r});")
+                except Exception:
+                    pass
+
+        win.events.closed += on_closed
+        return {"ok": True, "message": "已打开独立窗口。"}
 
     def dictionary_search(self, query: str, exact_match: bool = False) -> Dict[str, Any]:
         return self._invoke(self.dictionary_service.search, query, bool(exact_match))
@@ -739,14 +798,16 @@ def launch_unified_webui(
     if not index_path.exists():
         raise FileNotFoundError(f"Web UI entry file not found: {index_path}")
 
-    webview.create_window(
+    main_window = webview.create_window(
         title="Alician Unified Workspace",
         url=index_path.as_uri(),
         js_api=api,
         width=1320,
         height=860,
         resizable=True,
+        text_select=True,
     )
+    api.set_main_window(main_window)
 
     try:
         webview.start()
