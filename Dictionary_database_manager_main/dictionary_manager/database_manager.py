@@ -5,20 +5,38 @@ import sqlite3
 from sqlite3 import Error
 import glob
 import os
+import sys
 
 class DatabaseManager:
     def __init__(self):
         self.conn = None
         self.db_file = None
-        # 获取项目根目录路径（Dictionary_database_manager_main的父目录）
-        self.project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+        # 获取项目根目录路径（支持打包环境）
+        if getattr(sys, 'frozen', False):
+            # 打包环境 - 使用可执行文件所在目录
+            self.project_root = os.path.dirname(os.path.abspath(sys.executable))
+        else:
+            # 开发环境 - 使用Dictionary_database_manager_main的父目录
+            self.project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
         
     def connect_database(self, db_file):
         """连接到数据库"""
         try:
-            # 构建完整的数据库文件路径（相对于项目根目录）
+            # 构建完整的数据库文件路径
             if not os.path.isabs(db_file):
-                self.db_file = os.path.join(self.project_root, db_file)
+                # 先在当前目录查找
+                current_path = os.path.join(self.project_root, db_file)
+                if os.path.exists(current_path):
+                    self.db_file = current_path
+                else:
+                    # 再在上级目录查找
+                    parent_dir = os.path.dirname(self.project_root)
+                    parent_path = os.path.join(parent_dir, db_file)
+                    if os.path.exists(parent_path):
+                        self.db_file = parent_path
+                    else:
+                        # 如果都不存在，使用当前目录路径
+                        self.db_file = current_path
             else:
                 self.db_file = db_file
             self.conn = sqlite3.connect(self.db_file)
@@ -315,6 +333,13 @@ class DatabaseManager:
         """获取项目根目录下所有的.db文件"""
         # 搜索项目根目录下的所有.db文件
         db_files = glob.glob(os.path.join(self.project_root, "*.db"))
+        # 同时搜索上级目录，因为translated.db可能在项目根目录
+        parent_dir = os.path.dirname(self.project_root)
+        if parent_dir != self.project_root:
+            parent_db_files = glob.glob(os.path.join(parent_dir, "*.db"))
+            db_files.extend(parent_db_files)
+        # 去重
+        db_files = list(set(db_files))
         # 返回仅包含文件名的列表，不包含路径
         return [os.path.basename(db_file) for db_file in db_files]
     

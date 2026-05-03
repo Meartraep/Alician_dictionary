@@ -2,7 +2,14 @@
 # 项目仓库：https://github.com/Meartraep/Alician_dictionary
 # 协议：CC BY-NC 4.0 | 禁止商用，改编需保留署名
 import tkinter as tk
-from tkinter import ttk, messagebox, simpledialog
+import os
+import sys
+from tkinter import ttk, messagebox, simpledialog, filedialog
+
+# 添加父目录到sys.path，确保能正确导入update_word_count和classify_words模块
+sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+from update_word_count import main as update_word_count_main
+from classify_words import classify_words
 
 class GUIHandler:
     def __init__(self, database_manager, data_viewer, data_editor):
@@ -96,6 +103,11 @@ class GUIHandler:
         ttk.Button(top_frame1, text="取消全选", command=self.data_viewer.deselect_all).pack(side=tk.LEFT, padx=5)
         ttk.Button(top_frame1, text="批量编辑", command=lambda: self.data_editor.batch_edit(self.fields, self.current_table)).pack(side=tk.LEFT, padx=5)
         
+        # 更新词频按钮
+        ttk.Button(top_frame1, text="更新词频", command=self.update_word_frequency).pack(side=tk.LEFT, padx=5)
+        # 更新分类按钮
+        ttk.Button(top_frame1, text="更新分类", command=self.update_classification).pack(side=tk.LEFT, padx=5)
+        
         # 顶部按钮区域 - 第二行：单条记录操作
         top_frame2 = ttk.Frame(right_frame, padding=(10, 0))
         top_frame2.pack(fill=tk.X)
@@ -174,11 +186,22 @@ class GUIHandler:
                 result[0] = db_name
                 dialog.destroy()
         
+        def browse_file():
+            # 打开文件选择对话框，允许用户选择任意位置的.db文件
+            file_path = filedialog.askopenfilename(
+                title="选择数据库文件",
+                filetypes=[("SQLite数据库文件", "*.db"), ("所有文件", "*.*")]
+            )
+            if file_path:
+                result[0] = file_path
+                dialog.destroy()
+        
         # 按钮
         btn_frame = ttk.Frame(dialog)
         btn_frame.pack(pady=20)
         
         ttk.Button(btn_frame, text="连接选中", command=on_select).pack(side=tk.LEFT, padx=10)
+        ttk.Button(btn_frame, text="浏览文件", command=browse_file).pack(side=tk.LEFT, padx=10)
         ttk.Button(btn_frame, text="创建新数据库", command=create_new).pack(side=tk.LEFT, padx=10)
         ttk.Button(btn_frame, text="取消", command=dialog.destroy).pack(side=tk.LEFT, padx=10)
         
@@ -264,28 +287,13 @@ class GUIHandler:
         # 获取当前目录下所有的.db文件
         db_files = self.db_manager.get_all_db_files()
         
-        if not db_files:
-            # 如果没有找到数据库文件，询问是否创建新的
-            if messagebox.askyesno("数据库不存在", "未找到任何数据库文件，是否创建新的数据库？"):
-                db_file = "my_dictionary.db"
-                if self.db_manager.connect_database(db_file):
-                    # 创建默认表
-                    fields = ["单词", "释义", "来源文件"]
-                    self.db_manager.create_table("words", fields)
-                    return db_file
-            return None
-        elif len(db_files) == 1:
-            # 只有一个数据库文件，直接使用
-            db_file = db_files[0]
+        # 多个数据库文件，让用户选择
+        db_file = self.show_database_selector(db_files)
+        if db_file:
+            # 检查是否是完整路径（包含目录）
             if self.db_manager.connect_database(db_file):
                 return db_file
-            return None
-        else:
-            # 多个数据库文件，让用户选择
-            db_file = self.show_database_selector(db_files)
-            if db_file and self.db_manager.connect_database(db_file):
-                return db_file
-            return None
+        return None
     
     def create_new_table_dialog(self):
         """创建新表对话框"""
@@ -578,6 +586,40 @@ class GUIHandler:
     def show_find_replace_dialog(self):
         """显示查找替换对话框"""
         FindReplaceDialog(self.root, self.db_manager, self.status_var, self.data_viewer)
+    
+    def update_word_frequency(self):
+        """更新词频"""
+        if messagebox.askyesno("确认更新", "确定要更新词频吗？此操作可能需要一些时间。"):
+            try:
+                self.status_var.set("正在更新词频...")
+                self.root.update()
+                # 调用update_word_count.py中的main函数
+                update_word_count_main(verbose=False)
+                messagebox.showinfo("更新完成", "词频更新成功！")
+                self.status_var.set("词频更新完成")
+                # 刷新数据视图
+                if self.data_viewer and self.current_table:
+                    self.data_viewer.refresh_data()
+            except Exception as e:
+                messagebox.showerror("更新失败", f"词频更新失败: {e}")
+                self.status_var.set("词频更新失败")
+    
+    def update_classification(self):
+        """更新分类"""
+        if messagebox.askyesno("确认更新", "确定要更新分类吗？此操作可能需要一些时间。"):
+            try:
+                self.status_var.set("正在更新分类...")
+                self.root.update()
+                # 调用classify_words.py中的classify_words函数
+                classify_words()
+                messagebox.showinfo("更新完成", "分类更新成功！")
+                self.status_var.set("分类更新完成")
+                # 刷新数据视图
+                if self.data_viewer and self.current_table:
+                    self.data_viewer.refresh_data()
+            except Exception as e:
+                messagebox.showerror("更新失败", f"分类更新失败: {e}")
+                self.status_var.set("分类更新失败")
 
 class FindReplaceDialog:
     """查找替换对话框类"""

@@ -412,6 +412,22 @@ class AliceDictionaryApp:
         lyric_text.tag_configure("current_highlight", background=Config.CURRENT_HIGHLIGHT_COLOR)
         lyric_text.tag_configure("word_highlight", background=Config.HIGHLIGHT_COLOR)
         
+        # 5. 编辑控制区域
+        edit_frame = ttk.Frame(lyric_window, padding="5")
+        edit_frame.pack(fill=tk.X, padx=10, pady=5)
+        
+        edit_button = ttk.Button(edit_frame, text="编辑歌词")
+        edit_button.pack(side=tk.LEFT, padx=5)
+        
+        save_button = ttk.Button(edit_frame, text="保存修改", state=tk.DISABLED)
+        save_button.pack(side=tk.LEFT, padx=5)
+        
+        cancel_button = ttk.Button(edit_frame, text="取消编辑", state=tk.DISABLED)
+        cancel_button.pack(side=tk.LEFT, padx=5)
+        
+        status_label = ttk.Label(edit_frame, text="", foreground="blue")
+        status_label.pack(side=tk.LEFT, padx=10)
+        
         current_index = initial_index
 
         def update_lyric_display(idx: int) -> None:
@@ -441,24 +457,16 @@ class AliceDictionaryApp:
             if start_pos >= 0 and end_pos > start_pos:
                 # 高亮当前段落
                 lyric_text.tag_add("current_highlight", f"1.0 + {start_pos} chars", f"1.0 + {end_pos} chars")
-                # 高亮目标单词
+                # 高亮目标单词，保留注释行展示，但只用原句命中结果作为搜索入口
                 TextProcessor.highlight_text(lyric_text, curr_lyric, search_word)
-                
-                # 改进的文本跳转逻辑，使段落居中显示
-                # 1. 先滚动到段落起始位置
-                lyric_text.see(f"1.0 + {start_pos} chars")
-                # 2. 计算段落高度并调整位置使其尽量居中
-                lyric_text.tag_add("scroll_target", f"1.0 + {start_pos} chars")
-                try:
-                    # 获取可见行数
-                    visible_lines = int(lyric_text.winfo_height() / lyric_text.dlineinfo(1.0)[3])
-                    # 滚动到段落位置，使段落尽量居中
-                    line_start = lyric_text.index(f"1.0 + {start_pos} chars").split(".")[0]
-                    mid_line = max(1, int(line_start) - visible_lines // 3)
-                    lyric_text.see(f"{mid_line}.0")
-                except Exception:
-                    # 如果出现错误，回退到简单滚动
-                    pass
+                lyric_text.tag_raise("word_highlight", "current_highlight")
+
+                # 尽量把目标段落居中显示
+                TextProcessor.center_text_range(
+                    lyric_text,
+                    f"1.0 + {start_pos} chars",
+                    f"1.0 + {end_pos} chars"
+                )
             
             # 更新导航状态
             status_var.set(f"当前例句 {idx + 1}/{len(all_examples)}（原始例句总数：{total_before}）")
@@ -485,6 +493,73 @@ class AliceDictionaryApp:
         
         # 初始显示
         update_lyric_display(initial_index)
+        
+        # 编辑功能实现
+        original_lyric = lyric  # 保存原始歌词用于取消编辑
+        is_editing = False
+        
+        def start_editing():
+            nonlocal is_editing
+            is_editing = True
+            lyric_text.config(state=tk.NORMAL)
+            edit_button.config(state=tk.DISABLED)
+            save_button.config(state=tk.NORMAL)
+            cancel_button.config(state=tk.NORMAL)
+            status_label.config(text="编辑模式已开启，请修改歌词内容")
+            
+        def cancel_editing():
+            nonlocal is_editing
+            is_editing = False
+            lyric_text.config(state=tk.NORMAL)
+            lyric_text.delete(1.0, tk.END)
+            lyric_text.insert(1.0, original_lyric)
+            lyric_text.config(state=tk.DISABLED)
+            edit_button.config(state=tk.NORMAL)
+            save_button.config(state=tk.DISABLED)
+            cancel_button.config(state=tk.DISABLED)
+            status_label.config(text="编辑已取消")
+            update_lyric_display(current_index)  # 重新高亮显示
+            
+        def save_changes():
+            try:
+                new_lyric = lyric_text.get(1.0, tk.END).strip()
+                if not new_lyric:
+                    messagebox.showerror("错误", "歌词内容不能为空")
+                    return
+                
+                # 更新数据库
+                success = self.db_handler.update_song_lyric(title, album, new_lyric)
+                if success:
+                    # 更新当前显示的歌词
+                    nonlocal original_lyric
+                    original_lyric = new_lyric
+                    
+                    # 更新当前例句中的歌词
+                    for example in all_examples:
+                        if example['title'] == title and example['album'] == album:
+                            example['lyric'] = new_lyric
+                    
+                    # 退出编辑模式
+                    nonlocal is_editing
+                    is_editing = False
+                    lyric_text.config(state=tk.DISABLED)
+                    edit_button.config(state=tk.NORMAL)
+                    save_button.config(state=tk.DISABLED)
+                    cancel_button.config(state=tk.DISABLED)
+                    status_label.config(text="歌词已成功保存到数据库")
+                    
+                    # 重新显示更新后的歌词
+                    update_lyric_display(current_index)
+                else:
+                    messagebox.showerror("错误", "保存失败，请检查数据库连接")
+                    
+            except Exception as e:
+                messagebox.showerror("错误", f"保存时发生错误: {str(e)}")
+        
+        # 绑定按钮事件
+        edit_button.config(command=start_editing)
+        save_button.config(command=save_changes)
+        cancel_button.config(command=cancel_editing)
 
     def on_close(self) -> None:
         # 停止可能正在进行的搜索
