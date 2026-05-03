@@ -119,6 +119,24 @@ class DatabaseHandler:
         
         self.cursor.execute("SELECT title, lyric, Album FROM songs WHERE lyric LIKE ? OR title LIKE ? OR Album LIKE ?", (f'%{word.lower()}%',)*3)
         return self.cursor.fetchall()
+
+    def update_song_lyric(self, title: str, album: str, lyric: str) -> bool:
+        if not self.cursor or not self.conn or not title:
+            return False
+
+        if album:
+            self.cursor.execute(
+                "UPDATE songs SET lyric = ? WHERE title = ? AND Album = ?",
+                (lyric, title, album),
+            )
+        else:
+            self.cursor.execute(
+                "UPDATE songs SET lyric = ? WHERE title = ?",
+                (lyric, title),
+            )
+
+        self.conn.commit()
+        return self.cursor.rowcount > 0
     
     def get_word_stats(self, word: str, is_exact: bool = True) -> Optional[Tuple[int, int]]:
         """

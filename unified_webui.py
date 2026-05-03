@@ -219,9 +219,9 @@ class DictionaryService:
     def update_song_lyric(self, title: str, album: str, new_lyric: str) -> Dict[str, Any]:
         normalized_title = (title or "").strip()
         normalized_album = (album or "").strip()
-        lyric = (new_lyric or "").strip()
+        lyric = new_lyric or ""
 
-        if not normalized_title or not lyric:
+        if not normalized_title or not lyric.strip():
             return {"ok": False, "message": "标题和歌词不能为空。"}
 
         with self._lock:

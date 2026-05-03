@@ -31,6 +31,7 @@
       settings: { strict_case: true, max_undo_steps: 100, excluded_words: [] },
       selectedSidebarKey: "",
       infoPopup: null,
+      isComposing: false,
     },
   };
 
@@ -225,11 +226,10 @@
 
     window.addEventListener("mousemove", (e) => {
       if (!dragging) return;
-      const wr = els.workspace.getBoundingClientRect();
-      const x = e.clientX - wr.left - dx;
-      const y = e.clientY - wr.top - dy;
-      win.style.left = `${Math.max(8, Math.min(x, wr.width - 260))}px`;
-      win.style.top = `${Math.max(8, Math.min(y, wr.height - 120))}px`;
+      const x = e.clientX - dx;
+      const y = e.clientY - dy;
+      win.style.left = `${x}px`;
+      win.style.top = `${y}px`;
     });
 
     window.addEventListener("mouseup", (e) => {
@@ -244,8 +244,8 @@
   function createFloatingWindow(appId, left, top) {
     const win = document.createElement("div");
     win.className = "floating-window";
-    win.style.left = `${Math.max(12, left)}px`;
-    win.style.top = `${Math.max(12, top)}px`;
+    win.style.left = `${left}px`;
+    win.style.top = `${top}px`;
 
     const head = document.createElement("div");
     head.className = "window-head";
@@ -268,8 +268,7 @@
 
   function detachAppFromDock(appId, clientX, clientY) {
     if (state.apps[appId].detached) return;
-    const wr = els.workspace.getBoundingClientRect();
-    const { win, body } = createFloatingWindow(appId, clientX - wr.left - 160, clientY - wr.top - 40);
+    const { win, body } = createFloatingWindow(appId, clientX - 160, clientY - 40);
     const panel = getAppPanel(appId);
     panel.classList.add("show");
     body.appendChild(panel);
@@ -322,15 +321,18 @@
   }
 
   function bindSplitters() {
-    document.documentElement.style.setProperty("--dict-left", `${clamp(loadRatio(STORAGE_KEYS.dictLeft, 50), 25, 75)}%`);
-    document.documentElement.style.setProperty("--writing-main", `${clamp(loadRatio(STORAGE_KEYS.writingMain, 68), 40, 82)}%`);
-    document.documentElement.style.setProperty("--writing-top", `${clamp(loadRatio(STORAGE_KEYS.writingTop, 72), 40, 85)}%`);
+    document.documentElement.style.setProperty("--dict-left", `${clamp(loadRatio(STORAGE_KEYS.dictLeft, 50), 15, 85)}%`);
+    document.documentElement.style.setProperty("--writing-main", `${clamp(loadRatio(STORAGE_KEYS.writingMain, 68), 25, 90)}%`);
+    document.documentElement.style.setProperty("--writing-top", `${clamp(loadRatio(STORAGE_KEYS.writingTop, 72), 20, 90)}%`);
 
     const startDrag = (splitterEl, onMove) => {
       splitterEl.addEventListener("mousedown", (e) => {
+        if (e.button !== 0) return;
         e.preventDefault();
+        document.body.classList.add("splitter-active");
         const move = (evt) => onMove(evt);
         const up = () => {
+          document.body.classList.remove("splitter-active");
           window.removeEventListener("mousemove", move);
           window.removeEventListener("mouseup", up);
         };
@@ -341,21 +343,21 @@
 
     startDrag(els.dictSplit, (evt) => {
       const rect = els.dictLayout.getBoundingClientRect();
-      const ratio = clamp(((evt.clientX - rect.left) / rect.width) * 100, 25, 75);
+      const ratio = clamp(((evt.clientX - rect.left) / rect.width) * 100, 15, 85);
       document.documentElement.style.setProperty("--dict-left", `${ratio}%`);
       saveRatio(STORAGE_KEYS.dictLeft, ratio);
     });
 
     startDrag(els.writingMainSplit, (evt) => {
       const rect = els.writingTop.getBoundingClientRect();
-      const ratio = clamp(((evt.clientX - rect.left) / rect.width) * 100, 40, 82);
+      const ratio = clamp(((evt.clientX - rect.left) / rect.width) * 100, 25, 90);
       document.documentElement.style.setProperty("--writing-main", `${ratio}%`);
       saveRatio(STORAGE_KEYS.writingMain, ratio);
     });
 
     startDrag(els.writingBottomSplit, (evt) => {
       const rect = els.writingWorkspace.getBoundingClientRect();
-      const ratio = clamp(((evt.clientY - rect.top) / rect.height) * 100, 40, 85);
+      const ratio = clamp(((evt.clientY - rect.top) / rect.height) * 100, 20, 90);
       document.documentElement.style.setProperty("--writing-top", `${ratio}%`);
       saveRatio(STORAGE_KEYS.writingTop, ratio);
     });
@@ -524,6 +526,8 @@
       const saveBtn = document.getElementById("lyricSaveBtn");
       const cancelBtn = document.getElementById("lyricCancelBtn");
       let editing = false;
+      viewEl.tabIndex = 0;
+      viewEl.addEventListener("click", () => viewEl.focus());
 
       const renderStats = () => {
         const lines = [];
@@ -548,7 +552,14 @@
         editBtn.classList.toggle("hidden", editing);
         saveBtn.classList.toggle("hidden", !editing);
         cancelBtn.classList.toggle("hidden", !editing);
+        viewEl.classList.toggle("hidden", editing);
         editWrapEl.classList.toggle("hidden", !editing);
+        if (editing) {
+          requestAnimationFrame(() => {
+            editorEl.focus();
+            editorEl.setSelectionRange(editorEl.value.length, editorEl.value.length);
+          });
+        }
       };
 
       const renderAt = () => {
@@ -895,11 +906,12 @@
 
   async function runWritingCheck(immediate = false) {
     const perform = async () => {
+      if (state.writing.isComposing) return;
       const text = getEditorText();
       const seq = ++state.writing.checkSeq;
       try {
         const ret = await callApi("writing_check_text", text);
-        if (seq !== state.writing.checkSeq) return;
+        if (seq !== state.writing.checkSeq || state.writing.isComposing) return;
         state.writing.appliedSeq = seq;
         state.writing.lastResult = ret;
         const caret = getCaretOffset(els.writingEditor);
@@ -1009,8 +1021,21 @@
   }
 
   function bindWritingEvents() {
-    els.writingEditor.addEventListener("input", () => {
+    els.writingEditor.addEventListener("compositionstart", () => {
+      state.writing.isComposing = true;
+      state.writing.checkSeq += 1;
+      clearTimeout(state.writing.debounceTimer);
+    });
+
+    els.writingEditor.addEventListener("compositionend", () => {
+      state.writing.isComposing = false;
       closeInfoPopup();
+      runWritingCheck(false);
+    });
+
+    els.writingEditor.addEventListener("input", (e) => {
+      closeInfoPopup();
+      if (state.writing.isComposing || e.isComposing) return;
       runWritingCheck(false);
     });
 
