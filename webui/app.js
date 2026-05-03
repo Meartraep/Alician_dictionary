@@ -1,0 +1,1198 @@
+(() => {
+  const APP_IDS = ["dictionary", "writing"];
+  const APP_TITLES = {
+    dictionary: "词典工具",
+    writing: "写作助手",
+  };
+
+  const STORAGE_KEYS = {
+    dictLeft: "ui.dict.leftRatio",
+    writingMain: "ui.writing.mainRatio",
+    writingTop: "ui.writing.topRatio",
+  };
+
+  const state = {
+    activeDocked: "dictionary",
+    zIndexSeed: 30,
+    dragTabAppId: null,
+    apps: {
+      dictionary: { detached: false, floatingWindow: null },
+      writing: { detached: false, floatingWindow: null },
+    },
+    dictionary: {
+      currentExamplesPayload: null,
+      historyVisible: false,
+    },
+    writing: {
+      debounceTimer: null,
+      checkSeq: 0,
+      appliedSeq: 0,
+      lastResult: null,
+      settings: { strict_case: true, max_undo_steps: 100, excluded_words: [] },
+      selectedSidebarKey: "",
+      infoPopup: null,
+    },
+  };
+
+  const els = {};
+
+  function escapeHtml(raw) {
+    return String(raw)
+      .replaceAll("&", "&amp;")
+      .replaceAll("<", "&lt;")
+      .replaceAll(">", "&gt;")
+      .replaceAll('"', "&quot;")
+      .replaceAll("'", "&#39;");
+  }
+
+  function escapeRegExp(text) {
+    return String(text).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  }
+
+  function clamp(value, min, max) {
+    return Math.min(max, Math.max(min, value));
+  }
+
+  function saveRatio(key, value) {
+    try {
+      localStorage.setItem(key, String(value));
+    } catch (_) {
+      // ignore
+    }
+  }
+
+  function loadRatio(key, fallback) {
+    try {
+      const raw = localStorage.getItem(key);
+      if (raw == null) return fallback;
+      const val = Number(raw);
+      return Number.isFinite(val) ? val : fallback;
+    } catch (_) {
+      return fallback;
+    }
+  }
+
+  let pywebviewApiReady = null;
+
+  function getPywebviewApi() {
+    const api = window.pywebview?.api;
+    return api && typeof api === "object" ? api : null;
+  }
+
+  function waitForPywebviewApi(timeoutMs = 8000) {
+    const current = getPywebviewApi();
+    if (current) return Promise.resolve(current);
+    if (pywebviewApiReady) return pywebviewApiReady;
+
+    pywebviewApiReady = new Promise((resolve, reject) => {
+      let settled = false;
+      let pollTimer = null;
+      let timeoutTimer = null;
+
+      const cleanup = () => {
+        window.removeEventListener("pywebviewready", onReady);
+        if (pollTimer !== null) window.clearInterval(pollTimer);
+        if (timeoutTimer !== null) window.clearTimeout(timeoutTimer);
+      };
+
+      const finish = (api, error = null) => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        pywebviewApiReady = error ? null : Promise.resolve(api);
+        if (error) {
+          reject(error);
+          return;
+        }
+        resolve(api);
+      };
+
+      const checkReady = () => {
+        const api = getPywebviewApi();
+        if (api) finish(api);
+      };
+
+      const onReady = () => {
+        checkReady();
+      };
+
+      window.addEventListener("pywebviewready", onReady);
+      pollTimer = window.setInterval(checkReady, 50);
+      timeoutTimer = window.setTimeout(() => {
+        finish(null, new Error("Python API unavailable"));
+      }, timeoutMs);
+
+      checkReady();
+    });
+
+    return pywebviewApiReady;
+  }
+
+  async function callApi(method, ...args) {
+    const api = await waitForPywebviewApi();
+    const fn = api?.[method];
+    if (typeof fn !== "function") throw new Error(`Python API method unavailable: ${method}`);
+    return fn(...args);
+  }
+
+  function toast(message, kind = "info", duration = 2200) {
+    const node = document.createElement("div");
+    node.className = `toast ${kind}`;
+    node.textContent = message;
+    els.toastRoot.appendChild(node);
+    setTimeout(() => node.remove(), duration);
+  }
+
+  function bindBaseElements() {
+    const ids = [
+      "tabBar", "workspace", "dockHost", "floatingLayer",
+      "modalRoot", "modalTitle", "modalBody", "modalCloseBtn", "toastRoot",
+      "dictLayout", "dictSplit", "dictQuery", "dictExact", "dictSearchBtn", "dictHistoryBtn", "dictHistory", "dictResults", "dictExamples",
+      "writingWorkspace", "writingTop", "writingMainSplit", "writingBottomSplit", "writingEditor", "writingSidebar", "writingStatus", "writingExplanation",
+      "writingImportBtn", "writingExportBtn", "writingSettingsBtn", "writingSettingsPanel",
+      "writingDictQuery", "writingDictExact", "writingDictSearchBtn",
+      "settingsStrictCase", "settingsUndo", "excludedInput", "excludedAddBtn", "excludedList", "settingsSaveBtn", "settingsCloseBtn",
+      "fileLoader",
+    ];
+    for (const id of ids) els[id] = document.getElementById(id);
+  }
+
+  function showModal(title, html, onBind) {
+    els.modalTitle.textContent = title;
+    els.modalBody.innerHTML = html;
+    els.modalRoot.classList.remove("hidden");
+    if (onBind) onBind();
+  }
+
+  function closeModal() {
+    els.modalRoot.classList.add("hidden");
+    els.modalBody.innerHTML = "";
+  }
+
+  function getTabButton(appId) {
+    return els.tabBar.querySelector(`.tab-item[data-app="${appId}"]`);
+  }
+
+  function getAppPanel(appId) {
+    return document.getElementById(`panel-${appId}`);
+  }
+
+  function renderDockPanels() {
+    for (const appId of APP_IDS) {
+      const panel = getAppPanel(appId);
+      panel.classList.toggle("show", !state.apps[appId].detached && state.activeDocked === appId);
+    }
+  }
+
+  function updateTabVisualState() {
+    for (const appId of APP_IDS) {
+      const tab = getTabButton(appId);
+      tab.classList.toggle("detached", state.apps[appId].detached);
+      tab.classList.toggle("active", !state.apps[appId].detached && state.activeDocked === appId);
+    }
+  }
+
+  function activateDocked(appId) {
+    if (state.apps[appId].detached) {
+      const win = state.apps[appId].floatingWindow;
+      if (win) bringFloatingToFront(win);
+      return;
+    }
+    state.activeDocked = appId;
+    renderDockPanels();
+    updateTabVisualState();
+  }
+
+  function bringFloatingToFront(win) {
+    state.zIndexSeed += 1;
+    win.style.zIndex = String(state.zIndexSeed);
+  }
+
+  function bindFloatingDragging(win, head, appId) {
+    let dragging = false;
+    let dx = 0;
+    let dy = 0;
+
+    head.addEventListener("mousedown", (e) => {
+      if (e.target.tagName === "BUTTON") return;
+      dragging = true;
+      bringFloatingToFront(win);
+      const rect = win.getBoundingClientRect();
+      dx = e.clientX - rect.left;
+      dy = e.clientY - rect.top;
+      e.preventDefault();
+    });
+
+    window.addEventListener("mousemove", (e) => {
+      if (!dragging) return;
+      const wr = els.workspace.getBoundingClientRect();
+      const x = e.clientX - wr.left - dx;
+      const y = e.clientY - wr.top - dy;
+      win.style.left = `${Math.max(8, Math.min(x, wr.width - 260))}px`;
+      win.style.top = `${Math.max(8, Math.min(y, wr.height - 120))}px`;
+    });
+
+    window.addEventListener("mouseup", (e) => {
+      if (!dragging) return;
+      dragging = false;
+      const tr = els.tabBar.getBoundingClientRect();
+      const inTabBar = e.clientX >= tr.left && e.clientX <= tr.right && e.clientY >= tr.top && e.clientY <= tr.bottom;
+      if (inTabBar) attachAppToDock(appId, true);
+    });
+  }
+
+  function createFloatingWindow(appId, left, top) {
+    const win = document.createElement("div");
+    win.className = "floating-window";
+    win.style.left = `${Math.max(12, left)}px`;
+    win.style.top = `${Math.max(12, top)}px`;
+
+    const head = document.createElement("div");
+    head.className = "window-head";
+    head.innerHTML = `<span>${APP_TITLES[appId]}</span>`;
+    const closeBtn = document.createElement("button");
+    closeBtn.type = "button";
+    closeBtn.textContent = "关闭并归位";
+    head.appendChild(closeBtn);
+    win.appendChild(head);
+
+    const body = document.createElement("div");
+    body.className = "window-body";
+    win.appendChild(body);
+
+    closeBtn.addEventListener("click", () => attachAppToDock(appId, true));
+    win.addEventListener("mousedown", () => bringFloatingToFront(win));
+    bindFloatingDragging(win, head, appId);
+    return { win, body };
+  }
+
+  function detachAppFromDock(appId, clientX, clientY) {
+    if (state.apps[appId].detached) return;
+    const wr = els.workspace.getBoundingClientRect();
+    const { win, body } = createFloatingWindow(appId, clientX - wr.left - 160, clientY - wr.top - 40);
+    const panel = getAppPanel(appId);
+    panel.classList.add("show");
+    body.appendChild(panel);
+    els.floatingLayer.appendChild(win);
+
+    state.apps[appId].detached = true;
+    state.apps[appId].floatingWindow = win;
+    if (state.activeDocked === appId) {
+      state.activeDocked = APP_IDS.find((id) => !state.apps[id].detached && id !== appId) || "dictionary";
+    }
+    renderDockPanels();
+    updateTabVisualState();
+    bringFloatingToFront(win);
+  }
+
+  function attachAppToDock(appId, shouldActivate = true) {
+    const info = state.apps[appId];
+    if (!info.detached) {
+      if (shouldActivate) activateDocked(appId);
+      return;
+    }
+    const panel = getAppPanel(appId);
+    els.dockHost.appendChild(panel);
+    panel.classList.toggle("show", shouldActivate);
+    if (info.floatingWindow) info.floatingWindow.remove();
+    info.detached = false;
+    info.floatingWindow = null;
+    if (shouldActivate) state.activeDocked = appId;
+    renderDockPanels();
+    updateTabVisualState();
+  }
+
+  function bindTabs() {
+    const tabs = els.tabBar.querySelectorAll(".tab-item");
+    tabs.forEach((tab) => {
+      const appId = tab.dataset.app;
+      tab.addEventListener("click", () => activateDocked(appId));
+      tab.addEventListener("dragstart", () => {
+        state.dragTabAppId = appId;
+      });
+      tab.addEventListener("dragend", (e) => {
+        const id = state.dragTabAppId;
+        state.dragTabAppId = null;
+        if (!id) return;
+        const tr = els.tabBar.getBoundingClientRect();
+        const inTabBar = e.clientX >= tr.left && e.clientX <= tr.right && e.clientY >= tr.top && e.clientY <= tr.bottom;
+        if (!inTabBar) detachAppFromDock(id, e.clientX, e.clientY);
+      });
+    });
+  }
+
+  function bindSplitters() {
+    document.documentElement.style.setProperty("--dict-left", `${clamp(loadRatio(STORAGE_KEYS.dictLeft, 50), 25, 75)}%`);
+    document.documentElement.style.setProperty("--writing-main", `${clamp(loadRatio(STORAGE_KEYS.writingMain, 68), 40, 82)}%`);
+    document.documentElement.style.setProperty("--writing-top", `${clamp(loadRatio(STORAGE_KEYS.writingTop, 72), 40, 85)}%`);
+
+    const startDrag = (splitterEl, onMove) => {
+      splitterEl.addEventListener("mousedown", (e) => {
+        e.preventDefault();
+        const move = (evt) => onMove(evt);
+        const up = () => {
+          window.removeEventListener("mousemove", move);
+          window.removeEventListener("mouseup", up);
+        };
+        window.addEventListener("mousemove", move);
+        window.addEventListener("mouseup", up);
+      });
+    };
+
+    startDrag(els.dictSplit, (evt) => {
+      const rect = els.dictLayout.getBoundingClientRect();
+      const ratio = clamp(((evt.clientX - rect.left) / rect.width) * 100, 25, 75);
+      document.documentElement.style.setProperty("--dict-left", `${ratio}%`);
+      saveRatio(STORAGE_KEYS.dictLeft, ratio);
+    });
+
+    startDrag(els.writingMainSplit, (evt) => {
+      const rect = els.writingTop.getBoundingClientRect();
+      const ratio = clamp(((evt.clientX - rect.left) / rect.width) * 100, 40, 82);
+      document.documentElement.style.setProperty("--writing-main", `${ratio}%`);
+      saveRatio(STORAGE_KEYS.writingMain, ratio);
+    });
+
+    startDrag(els.writingBottomSplit, (evt) => {
+      const rect = els.writingWorkspace.getBoundingClientRect();
+      const ratio = clamp(((evt.clientY - rect.top) / rect.height) * 100, 40, 85);
+      document.documentElement.style.setProperty("--writing-top", `${ratio}%`);
+      saveRatio(STORAGE_KEYS.writingTop, ratio);
+    });
+  }
+
+  function applyWordHighlight(text, word) {
+    const source = String(text || "");
+    const target = String(word || "").trim();
+    if (!target) return escapeHtml(source);
+    const regex = new RegExp(`\\b${escapeRegExp(target)}\\b`, "gi");
+    let output = "";
+    let last = 0;
+    let match = regex.exec(source);
+    while (match) {
+      output += escapeHtml(source.slice(last, match.index));
+      output += `<mark class="lyric-word-hit">${escapeHtml(match[0])}</mark>`;
+      last = match.index + match[0].length;
+      match = regex.exec(source);
+    }
+    output += escapeHtml(source.slice(last));
+    return output;
+  }
+
+  function renderLyricWithFocus(lyric, word, start, end) {
+    const full = String(lyric || "");
+    const s = clamp(Number(start || 0), 0, full.length);
+    const e = clamp(Number(end || 0), s, full.length);
+    const before = full.slice(0, s);
+    const focused = full.slice(s, e);
+    const after = full.slice(e);
+    const focusHtml = focused
+      ? `<span class="lyric-paragraph-focus">${applyWordHighlight(focused, word)}</span>`
+      : "";
+    return `${applyWordHighlight(before, word)}${focusHtml}${applyWordHighlight(after, word)}`;
+  }
+
+  async function runDictionarySearch(query, exactMatch) {
+    const q = String(query ?? els.dictQuery.value).trim();
+    if (!q) return toast("请输入要查询的词。", "warn");
+    try {
+      const ret = await callApi("dictionary_search", q, Boolean(exactMatch ?? els.dictExact.checked));
+      renderDictionaryResults(ret);
+    } catch (err) {
+      toast(`查询失败：${err.message}`, "warn", 3200);
+    }
+  }
+
+  function renderDictionaryHistory(history) {
+    const list = Array.isArray(history) ? history : [];
+    if (!list.length) {
+      els.dictHistory.innerHTML = '<div class="history-item">暂无历史记录</div>';
+      return;
+    }
+    els.dictHistory.innerHTML = list
+      .map((item) => `<div class="history-item" data-query="${escapeHtml(item)}">${escapeHtml(item)}</div>`)
+      .join("");
+  }
+
+  function renderDictionaryResults(payload) {
+    const sections = payload?.sections || [];
+    if (!sections.length) {
+      els.dictResults.innerHTML = `<div class="result-item">${escapeHtml(payload?.message || "未找到结果")}</div>`;
+      renderDictionaryHistory(payload?.history || []);
+      return;
+    }
+
+    els.dictResults.innerHTML = sections
+      .map((sec) => {
+        const rows = (sec.entries || []).map((entry) => `
+          <div class="result-item">
+            <div class="result-main">${escapeHtml(entry.word || "")}</div>
+            <div class="result-meta">
+              ${(entry.word_class || "词类未知")} | 词频: ${entry.count ?? 0} | 泛度: ${entry.variety ?? 0}
+            </div>
+            <div class="example-paragraph">${escapeHtml(entry.explanation || "")}</div>
+            <div class="result-actions">
+              <button class="small dict-example-btn" type="button" data-word="${escapeHtml(entry.word || "")}">显示例句</button>
+            </div>
+          </div>
+        `).join("");
+        return `
+          <section class="result-section">
+            <div class="result-section-title">${escapeHtml(sec.title || "")}</div>
+            ${rows}
+          </section>
+        `;
+      })
+      .join("");
+    renderDictionaryHistory(payload?.history || []);
+  }
+
+  async function loadDictionaryExamples(word) {
+    const target = String(word || "").trim();
+    if (!target) return;
+    try {
+      const ret = await callApi("dictionary_examples", target);
+      state.dictionary.currentExamplesPayload = ret;
+      renderDictionaryExamples(ret);
+    } catch (err) {
+      toast(`加载例句失败：${err.message}`, "warn", 3200);
+    }
+  }
+
+  function renderDictionaryExamples(payload) {
+    const examples = payload?.examples || [];
+    if (!examples.length) {
+      els.dictExamples.innerHTML = `<div class="example-item">${escapeHtml(payload?.message || "无例句")}</div>`;
+      return;
+    }
+    const word = payload.word || "";
+    els.dictExamples.innerHTML = examples
+      .map((ex, idx) => `
+        <div class="example-item">
+          <div class="example-source">${escapeHtml(ex.album || "")} - ${escapeHtml(ex.title || "")}</div>
+          <div class="example-paragraph">${applyWordHighlight(ex.paragraph || "", word)}</div>
+          <div class="result-actions">
+            <button class="small dict-context-btn" type="button" data-index="${idx}">查看上下文</button>
+          </div>
+        </div>
+      `)
+      .join("");
+  }
+
+  function openLyricContext(payload, sourceIndex) {
+    const allExamples = payload?.examples || [];
+    if (!allExamples.length || sourceIndex < 0 || sourceIndex >= allExamples.length) return;
+
+    let currentIndex = sourceIndex;
+    const originalTotal = Number(payload?.total_before || allExamples.length);
+    const dedupRate = Number(payload?.deduplication_rate ?? 0);
+    const songStats = Array.isArray(payload?.song_stats) ? payload.song_stats : [];
+
+    showModal("例句上下文", `
+      <div class="stats-box">
+        <div class="result-section-title">例句来源统计</div>
+        <div id="lyricStats"></div>
+      </div>
+      <div class="stats-box">
+        <div id="lyricSongTitle">当前歌曲</div>
+      </div>
+      <div class="result-actions" style="margin-bottom: 8px;">
+        <button id="lyricPrevBtn" class="ghost" type="button">上一句</button>
+        <div id="lyricCounter" style="padding: 7px 10px;"></div>
+        <button id="lyricNextBtn" class="ghost" type="button">下一句</button>
+      </div>
+      <div id="lyricView" class="lyric-view"></div>
+      <div class="result-actions">
+        <button id="lyricEditBtn" type="button">编辑歌词</button>
+        <button id="lyricSaveBtn" type="button" class="hidden">保存歌词</button>
+        <button id="lyricCancelBtn" type="button" class="ghost hidden">取消编辑</button>
+      </div>
+      <div id="lyricEditWrap" class="hidden">
+        <div class="panel-subtitle">编辑模式：修改整首歌词后点击“保存歌词”</div>
+        <textarea id="lyricEditor" class="lyric-area"></textarea>
+      </div>
+    `, () => {
+      const statsEl = document.getElementById("lyricStats");
+      const titleEl = document.getElementById("lyricSongTitle");
+      const counterEl = document.getElementById("lyricCounter");
+      const viewEl = document.getElementById("lyricView");
+      const editorEl = document.getElementById("lyricEditor");
+      const editWrapEl = document.getElementById("lyricEditWrap");
+      const prevBtn = document.getElementById("lyricPrevBtn");
+      const nextBtn = document.getElementById("lyricNextBtn");
+      const editBtn = document.getElementById("lyricEditBtn");
+      const saveBtn = document.getElementById("lyricSaveBtn");
+      const cancelBtn = document.getElementById("lyricCancelBtn");
+      let editing = false;
+
+      const renderStats = () => {
+        const lines = [];
+        lines.push(`单词 '${payload.word || ""}' 例句统计：`);
+        lines.push(`• 总数量（查重前）：${originalTotal} 个`);
+        lines.push(`• 总数量（查重后）：${allExamples.length} 个`);
+        lines.push(`• 去重率：${dedupRate.toFixed(1)}%`);
+        lines.push("");
+        lines.push("各歌曲例句分布（查重前/后）：");
+        if (!songStats.length) {
+          lines.push("• 无有效例句来源");
+        } else {
+          for (const it of songStats) {
+            lines.push(`• ${it.album} - ${it.title}：查重前 ${it.before} 个，查重后 ${it.after} 个`);
+          }
+        }
+        statsEl.textContent = lines.join("\n");
+      };
+
+      const setEditMode = (flag) => {
+        editing = Boolean(flag);
+        editBtn.classList.toggle("hidden", editing);
+        saveBtn.classList.toggle("hidden", !editing);
+        cancelBtn.classList.toggle("hidden", !editing);
+        editWrapEl.classList.toggle("hidden", !editing);
+      };
+
+      const renderAt = () => {
+        const current = allExamples[currentIndex];
+        if (!current) return;
+        titleEl.textContent = `当前歌曲：${current.title} - ${current.album}`;
+        counterEl.textContent = `当前例句 ${currentIndex + 1}/${allExamples.length}（原始例句总数：${originalTotal}）`;
+        viewEl.innerHTML = renderLyricWithFocus(current.lyric, payload.word, current.start, current.end);
+        if (editing) editorEl.value = current.lyric || "";
+        prevBtn.disabled = currentIndex <= 0;
+        nextBtn.disabled = currentIndex >= allExamples.length - 1;
+
+        const focus = viewEl.querySelector(".lyric-paragraph-focus");
+        if (focus) {
+          focus.scrollIntoView({ block: "center", inline: "nearest" });
+        }
+      };
+
+      prevBtn.addEventListener("click", () => {
+        if (currentIndex > 0) currentIndex -= 1;
+        renderAt();
+      });
+
+      nextBtn.addEventListener("click", () => {
+        if (currentIndex < allExamples.length - 1) currentIndex += 1;
+        renderAt();
+      });
+
+      editBtn.addEventListener("click", () => {
+        const current = allExamples[currentIndex];
+        if (!current) return;
+        editorEl.value = current.lyric || "";
+        setEditMode(true);
+      });
+
+      cancelBtn.addEventListener("click", () => {
+        setEditMode(false);
+      });
+
+      saveBtn.addEventListener("click", async () => {
+        const current = allExamples[currentIndex];
+        if (!current) return;
+        try {
+          const ret = await callApi("dictionary_update_lyric", current.title, current.album, editorEl.value || "");
+          toast(ret?.message || "保存完成", ret?.ok ? "info" : "warn");
+          if (ret?.ok) {
+            await loadDictionaryExamples(payload.word);
+            setEditMode(false);
+            closeModal();
+          }
+        } catch (err) {
+          toast(`保存失败：${err.message}`, "warn", 3200);
+        }
+      });
+
+      renderStats();
+      setEditMode(false);
+      renderAt();
+    });
+  }
+
+  function bindDictionaryEvents() {
+    els.dictSearchBtn.addEventListener("click", () => runDictionarySearch());
+    els.dictQuery.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") runDictionarySearch();
+    });
+
+    els.dictHistoryBtn.addEventListener("click", async () => {
+      state.dictionary.historyVisible = !state.dictionary.historyVisible;
+      if (state.dictionary.historyVisible && els.dictHistory.childElementCount === 0) {
+        try {
+          renderDictionaryHistory(await callApi("dictionary_history"));
+        } catch (_) {
+          renderDictionaryHistory([]);
+        }
+      }
+      els.dictHistory.classList.toggle("hidden", !state.dictionary.historyVisible);
+    });
+
+    els.dictHistory.addEventListener("click", (e) => {
+      const node = e.target.closest(".history-item[data-query]");
+      if (!node) return;
+      const query = node.dataset.query || "";
+      els.dictQuery.value = query;
+      state.dictionary.historyVisible = false;
+      els.dictHistory.classList.add("hidden");
+      runDictionarySearch(query);
+    });
+
+    els.dictResults.addEventListener("click", (e) => {
+      const btn = e.target.closest(".dict-example-btn[data-word]");
+      if (!btn) return;
+      loadDictionaryExamples(btn.dataset.word || "");
+    });
+
+    els.dictExamples.addEventListener("click", (e) => {
+      const btn = e.target.closest(".dict-context-btn[data-index]");
+      if (!btn || !state.dictionary.currentExamplesPayload) return;
+      const idx = Number(btn.dataset.index);
+      if (!Number.isInteger(idx)) return;
+      openLyricContext(state.dictionary.currentExamplesPayload, idx);
+    });
+  }
+
+  function getEditorText() {
+    return (els.writingEditor.innerText || "").replace(/\r/g, "");
+  }
+
+  function locateDomPointByTextOffset(root, targetOffset) {
+    const total = getEditorText().length;
+    const offset = clamp(targetOffset, 0, total);
+    let consumed = 0;
+    let found = null;
+
+    const walk = (node) => {
+      if (found) return;
+      if (node.nodeType === Node.TEXT_NODE) {
+        const text = node.nodeValue || "";
+        const len = text.length;
+        if (offset <= consumed + len) {
+          found = { node, offset: offset - consumed };
+          return;
+        }
+        consumed += len;
+        return;
+      }
+      if (node.nodeType === Node.ELEMENT_NODE && node.tagName === "BR") {
+        if (offset <= consumed + 1) {
+          const parent = node.parentNode;
+          const index = Array.prototype.indexOf.call(parent.childNodes, node);
+          found = { node: parent, offset: index + 1 };
+          return;
+        }
+        consumed += 1;
+        return;
+      }
+      const children = node.childNodes || [];
+      for (let i = 0; i < children.length; i += 1) walk(children[i]);
+    };
+
+    walk(root);
+    if (found) return found;
+    return { node: root, offset: root.childNodes.length };
+  }
+
+  function setCaretRangeByOffset(root, start, end = start) {
+    const s = locateDomPointByTextOffset(root, start);
+    const e = locateDomPointByTextOffset(root, end);
+    const range = document.createRange();
+    range.setStart(s.node, s.offset);
+    range.setEnd(e.node, e.offset);
+    const sel = window.getSelection();
+    sel.removeAllRanges();
+    sel.addRange(range);
+  }
+
+  function getCaretOffset(root) {
+    const sel = window.getSelection();
+    if (!sel || !sel.rangeCount) return 0;
+    const range = sel.getRangeAt(0);
+    const probe = range.cloneRange();
+    probe.selectNodeContents(root);
+    probe.setEnd(range.endContainer, range.endOffset);
+    return probe.toString().length;
+  }
+
+  function offsetFromPoint(root, clientX, clientY) {
+    let range = null;
+    if (document.caretRangeFromPoint) {
+      range = document.caretRangeFromPoint(clientX, clientY);
+    } else if (document.caretPositionFromPoint) {
+      const pos = document.caretPositionFromPoint(clientX, clientY);
+      if (pos) {
+        range = document.createRange();
+        range.setStart(pos.offsetNode, pos.offset);
+        range.collapse(true);
+      }
+    }
+    if (!range) return getCaretOffset(root);
+    const probe = document.createRange();
+    probe.selectNodeContents(root);
+    probe.setEnd(range.endContainer, range.endOffset);
+    return probe.toString().length;
+  }
+
+  function buildHighlightTypeArray(text, unknownRanges, lowstatRanges) {
+    const arr = new Array(text.length).fill(0);
+    for (const [s0, e0] of lowstatRanges || []) {
+      const s = clamp(Number(s0), 0, text.length);
+      const e = clamp(Number(e0), s, text.length);
+      for (let i = s; i < e; i += 1) arr[i] = Math.max(arr[i], 1);
+    }
+    for (const [s0, e0] of unknownRanges || []) {
+      const s = clamp(Number(s0), 0, text.length);
+      const e = clamp(Number(e0), s, text.length);
+      for (let i = s; i < e; i += 1) arr[i] = 2;
+    }
+    return arr;
+  }
+
+  function renderColoredEditorHtml(text, unknownRanges, lowstatRanges) {
+    const source = String(text || "");
+    const types = buildHighlightTypeArray(source, unknownRanges, lowstatRanges);
+    let html = "";
+    let active = 0;
+    const closeSpan = () => {
+      if (active !== 0) html += "</span>";
+      active = 0;
+    };
+    const openSpan = (t) => {
+      if (t === 2) html += '<span class="mark-unknown" data-hl="unknown" style="color:#b00020;font-weight:700">';
+      if (t === 1) html += '<span class="mark-lowstat" data-hl="lowstat" style="color:#0d4ba8;font-weight:700">';
+      active = t;
+    };
+
+    for (let i = 0; i < source.length; i += 1) {
+      const t = types[i];
+      if (t !== active) {
+        closeSpan();
+        if (t !== 0) openSpan(t);
+      }
+      const ch = source[i];
+      if (ch === "\n") {
+        html += "<br>";
+      } else {
+        html += escapeHtml(ch);
+      }
+    }
+    closeSpan();
+    return html;
+  }
+
+  function renderWritingSidebar(items) {
+    if (!Array.isArray(items) || items.length === 0) {
+      els.writingSidebar.innerHTML = '<div class="sidebar-item">暂无高亮词。</div>';
+      return;
+    }
+    els.writingSidebar.innerHTML = items
+      .map((it, index) => {
+        const reasons = (it.reasons || []).join("，");
+        const active = state.writing.selectedSidebarKey === `${it.pos}|${it.display}` ? " active" : "";
+        return `
+          <div class="sidebar-item ${escapeHtml(it.type || "unknown")}${active}"
+               data-index="${index}"
+               data-pos="${Number(it.pos) || 0}"
+               data-word="${escapeHtml(it.display || "")}"
+               data-type="${escapeHtml(it.type || "unknown")}">
+            <div>${escapeHtml(it.display || "")}</div>
+            <div class="result-meta">${reasons ? escapeHtml(reasons) : "无附加说明"}</div>
+            <div class="result-meta">count: ${Number(it.count) || 0} | variety: ${Number(it.variety) || 0}</div>
+          </div>
+        `;
+      })
+      .join("");
+  }
+
+  async function renderLookupToBottom(selectedText) {
+    const text = String(selectedText || "").trim();
+    if (!text) return;
+    try {
+      const ret = await callApi("writing_lookup", text);
+      if (!ret?.ok) {
+        els.writingExplanation.textContent = ret?.message || "未找到信息。";
+        return;
+      }
+      const explanations = (ret.explanations || [])
+        .map((it) => `<div class="result-item"><strong>${escapeHtml(it.word || "")}</strong>：${escapeHtml(it.explanation || "未找到释义")}</div>`)
+        .join("");
+      const similars = (ret.similar_words || [])
+        .map((it) => `<div class="result-item">建议：${escapeHtml(it.word || "")} → ${escapeHtml(it.similar_word || "")}（相似度 ${it.score ?? 0}）<br>${escapeHtml(it.explanation || "")}</div>`)
+        .join("");
+      els.writingExplanation.innerHTML = `
+        <div class="explanation-stack">
+          <div class="result-section-title">释义与建议</div>
+          ${explanations || '<div class="result-item">无释义信息</div>'}
+          ${similars}
+        </div>
+      `;
+    } catch (err) {
+      els.writingExplanation.textContent = `查询失败：${err.message}`;
+    }
+  }
+
+  function renderLowstatDetailsToBottom(item) {
+    const reasons = Array.isArray(item?.reasons) && item.reasons.length ? item.reasons.join("，") : "无";
+    els.writingExplanation.innerHTML = `
+      <div class="explanation-stack">
+        <div class="result-section-title">高亮原因与数值</div>
+        <div class="result-item"><strong>单词：</strong>${escapeHtml(item?.display || "")}</div>
+        <div class="result-item"><strong>类型：</strong>${item?.type === "lowstat" ? "蓝色低词频词" : "红色未知词"}</div>
+        <div class="result-item"><strong>词频：</strong>${Number(item?.count) || 0}</div>
+        <div class="result-item"><strong>泛度：</strong>${Number(item?.variety) || 0}</div>
+        <div class="result-item"><strong>count：</strong>${Number(item?.count) || 0}</div>
+        <div class="result-item"><strong>variety：</strong>${Number(item?.variety) || 0}</div>
+        <div class="result-item"><strong>原因：</strong>${escapeHtml(reasons)}</div>
+      </div>
+    `;
+  }
+
+  function closeInfoPopup() {
+    if (!state.writing.infoPopup) return;
+    state.writing.infoPopup.remove();
+    state.writing.infoPopup = null;
+  }
+
+  function showInfoPopup(item, clientX, clientY) {
+    closeInfoPopup();
+    const popup = document.createElement("div");
+    popup.className = "info-popup";
+    const reasons = Array.isArray(item.reasons) && item.reasons.length ? item.reasons.join("，") : "无";
+    popup.innerHTML = `
+      <div class="info-popup-title">${escapeHtml(item.display || "")}</div>
+      <div>类型：${item.type === "lowstat" ? "蓝色低词频词" : "红色未知词"}</div>
+      <div>词频：${Number(item.count) || 0}</div>
+      <div>泛度：${Number(item.variety) || 0}</div>
+      <div>原因：${escapeHtml(reasons)}</div>
+    `;
+    popup.style.left = `${clientX + 8}px`;
+    popup.style.top = `${clientY + 8}px`;
+    document.body.appendChild(popup);
+    state.writing.infoPopup = popup;
+  }
+
+  function findSidebarItemAtOffset(offset) {
+    const items = state.writing.lastResult?.sidebar_items || [];
+    if (!items.length) return null;
+    const exact = items.find((it) => {
+      const s = Number(it.pos) || 0;
+      const e = s + String(it.display || "").length;
+      return offset >= s && offset < e;
+    });
+    if (exact) return exact;
+    let nearest = null;
+    let best = Number.POSITIVE_INFINITY;
+    for (const it of items) {
+      const d = Math.abs((Number(it.pos) || 0) - offset);
+      if (d < best) {
+        best = d;
+        nearest = it;
+      }
+    }
+    return best <= 2 ? nearest : null;
+  }
+
+  async function runWritingCheck(immediate = false) {
+    const perform = async () => {
+      const text = getEditorText();
+      const seq = ++state.writing.checkSeq;
+      try {
+        const ret = await callApi("writing_check_text", text);
+        if (seq !== state.writing.checkSeq) return;
+        state.writing.appliedSeq = seq;
+        state.writing.lastResult = ret;
+        const caret = getCaretOffset(els.writingEditor);
+        els.writingEditor.innerHTML = renderColoredEditorHtml(text, ret.unknown_ranges || [], ret.lowstat_ranges || []);
+        setCaretRangeByOffset(els.writingEditor, clamp(caret, 0, getEditorText().length));
+        renderWritingSidebar(ret.sidebar_items || []);
+        els.writingStatus.textContent = ret.status || "";
+      } catch (err) {
+        if (seq !== state.writing.checkSeq) return;
+        toast(`检查失败：${err.message}`, "warn", 3200);
+      }
+    };
+
+    if (immediate) {
+      clearTimeout(state.writing.debounceTimer);
+      await perform();
+      return;
+    }
+
+    clearTimeout(state.writing.debounceTimer);
+    state.writing.debounceTimer = setTimeout(() => {
+      perform();
+    }, 280);
+  }
+
+  function applyWritingSettings(settings) {
+    state.writing.settings = settings || state.writing.settings;
+    els.settingsStrictCase.checked = Boolean(state.writing.settings.strict_case);
+    els.settingsUndo.value = Number(state.writing.settings.max_undo_steps) || 100;
+    renderExcludedWords(state.writing.settings.excluded_words || []);
+  }
+
+  function renderExcludedWords(words) {
+    const source = Array.isArray(words) ? words : [];
+    const normalized = [];
+    const seen = new Set();
+    for (const raw of source) {
+      const word = String(raw || "").trim();
+      if (!word || seen.has(word)) continue;
+      seen.add(word);
+      normalized.push(word);
+    }
+    state.writing.settings.excluded_words = normalized;
+    if (!normalized.length) {
+      els.excludedList.innerHTML = '<span class="result-meta">暂无排除词</span>';
+      return;
+    }
+    els.excludedList.innerHTML = normalized
+      .map((w) => `
+        <span class="excluded-tag" data-word="${escapeHtml(w)}">
+          ${escapeHtml(w)}
+          <button class="ghost small excluded-del" type="button" data-word="${escapeHtml(w)}">删除</button>
+        </span>
+      `).join("");
+  }
+
+  function centerEditorSelection() {
+    const sel = window.getSelection();
+    if (!sel || sel.rangeCount === 0) return;
+    const range = sel.getRangeAt(0).cloneRange();
+    const editor = els.writingEditor;
+    const editorRect = editor.getBoundingClientRect();
+    let rect = range.getBoundingClientRect();
+    if ((!rect || rect.height === 0) && range.getClientRects().length > 0) rect = range.getClientRects()[0];
+    let targetCenterY = null;
+    if (rect && rect.height > 0) {
+      targetCenterY = rect.top - editorRect.top + editor.scrollTop + rect.height / 2;
+    } else {
+      const startNode = range.startContainer?.nodeType === Node.TEXT_NODE
+        ? range.startContainer.parentElement
+        : range.startContainer;
+      if (startNode && editor.contains(startNode)) {
+        const nr = startNode.getBoundingClientRect();
+        targetCenterY = nr.top - editorRect.top + editor.scrollTop + nr.height / 2;
+      }
+    }
+    if (targetCenterY == null) return;
+    const nextTop = Math.max(0, targetCenterY - editor.clientHeight / 2);
+    editor.scrollTop = nextTop;
+  }
+
+  function syncSidebarActiveClasses() {
+    const key = state.writing.selectedSidebarKey;
+    const nodes = els.writingSidebar.querySelectorAll(".sidebar-item[data-pos][data-word]");
+    nodes.forEach((node) => {
+      const nodeKey = `${node.dataset.pos || "0"}|${node.dataset.word || ""}`;
+      node.classList.toggle("active", key !== "" && nodeKey === key);
+    });
+  }
+
+  function activateSidebarWord(item) {
+    if (!item) return;
+    state.writing.selectedSidebarKey = `${item.pos}|${item.display}`;
+    syncSidebarActiveClasses();
+  }
+
+  function selectSidebarWord(item) {
+    if (!item) return;
+    const start = Number(item.pos) || 0;
+    const len = String(item.display || "").length;
+    const end = start + len;
+    const maxLen = getEditorText().length;
+    activateSidebarWord(item);
+    els.writingEditor.focus();
+    setCaretRangeByOffset(els.writingEditor, clamp(start, 0, maxLen), clamp(end, 0, maxLen));
+    requestAnimationFrame(() => requestAnimationFrame(() => centerEditorSelection()));
+  }
+
+  function bindWritingEvents() {
+    els.writingEditor.addEventListener("input", () => {
+      closeInfoPopup();
+      runWritingCheck(false);
+    });
+
+    els.writingEditor.addEventListener("contextmenu", async (e) => {
+      const selected = String(window.getSelection()?.toString() || "").trim();
+      if (selected) {
+        e.preventDefault();
+        closeInfoPopup();
+        await renderLookupToBottom(selected);
+        return;
+      }
+
+      const offset = offsetFromPoint(els.writingEditor, e.clientX, e.clientY);
+      const item = findSidebarItemAtOffset(offset);
+      if (!item) {
+        closeInfoPopup();
+        return;
+      }
+      if (item.type === "lowstat" || item.type === "unknown") {
+        e.preventDefault();
+        showInfoPopup(item, e.clientX, e.clientY);
+      }
+    });
+
+    document.addEventListener("mousedown", (e) => {
+      if (!state.writing.infoPopup) return;
+      if (state.writing.infoPopup.contains(e.target)) return;
+      closeInfoPopup();
+    });
+
+    els.writingSidebar.addEventListener("click", (e) => {
+      const node = e.target.closest(".sidebar-item[data-index]");
+      if (!node) return;
+      const index = Number(node.dataset.index);
+      const item = state.writing.lastResult?.sidebar_items?.[index];
+      activateSidebarWord(item);
+    });
+
+    els.writingSidebar.addEventListener("dblclick", (e) => {
+      const node = e.target.closest(".sidebar-item[data-index]");
+      if (!node) return;
+      const index = Number(node.dataset.index);
+      const item = state.writing.lastResult?.sidebar_items?.[index];
+      if (!item) return;
+      selectSidebarWord(item);
+      if (item.type === "lowstat") {
+        renderLowstatDetailsToBottom(item);
+      } else {
+        renderLookupToBottom(item.display);
+      }
+    });
+
+    els.writingImportBtn.addEventListener("click", () => {
+      els.fileLoader.value = "";
+      els.fileLoader.click();
+    });
+
+    els.fileLoader.addEventListener("change", async () => {
+      const file = els.fileLoader.files?.[0];
+      if (!file) return;
+      const text = await file.text();
+      els.writingEditor.textContent = text;
+      state.writing.selectedSidebarKey = "";
+      closeInfoPopup();
+      await runWritingCheck(true);
+      toast(`已导入：${file.name}`);
+    });
+
+    els.writingExportBtn.addEventListener("click", async () => {
+      try {
+        const ret = await callApi("writing_export_text", getEditorText(), "writing_assistant.txt");
+        toast(ret?.message || "导出完成", ret?.ok ? "info" : "warn", 3200);
+      } catch (err) {
+        toast(`导出失败：${err.message}`, "warn", 3200);
+      }
+    });
+
+    els.writingSettingsBtn.addEventListener("click", async () => {
+      els.writingSettingsPanel.classList.toggle("hidden");
+      if (els.writingSettingsPanel.classList.contains("hidden")) return;
+      try {
+        const latest = await callApi("writing_get_settings");
+        applyWritingSettings(latest || state.writing.settings);
+      } catch (_) {
+        renderExcludedWords(state.writing.settings.excluded_words || []);
+      }
+    });
+
+    els.settingsCloseBtn.addEventListener("click", () => {
+      els.writingSettingsPanel.classList.add("hidden");
+    });
+
+    els.excludedAddBtn.addEventListener("click", () => {
+      const value = String(els.excludedInput.value || "").trim();
+      if (!value) return;
+      const current = new Set(state.writing.settings.excluded_words || []);
+      current.add(value);
+      renderExcludedWords(Array.from(current));
+      els.excludedInput.value = "";
+    });
+
+    els.excludedList.addEventListener("click", (e) => {
+      const btn = e.target.closest(".excluded-del[data-word]");
+      if (!btn) return;
+      const word = btn.dataset.word || "";
+      renderExcludedWords((state.writing.settings.excluded_words || []).filter((w) => w !== word));
+    });
+
+    els.settingsSaveBtn.addEventListener("click", async () => {
+      const payload = {
+        strict_case: Boolean(els.settingsStrictCase.checked),
+        max_undo_steps: Number(els.settingsUndo.value) || 100,
+        excluded_words: state.writing.settings.excluded_words || [],
+      };
+      try {
+        const ret = await callApi("writing_save_settings", payload);
+        if (ret?.ok) {
+          applyWritingSettings(ret.settings || payload);
+          els.writingStatus.textContent = ret.status || "";
+          els.writingSettingsPanel.classList.add("hidden");
+          await runWritingCheck(true);
+        }
+        toast(ret?.message || "设置已保存", ret?.ok ? "info" : "warn");
+      } catch (err) {
+        toast(`保存设置失败：${err.message}`, "warn", 3200);
+      }
+    });
+
+    els.writingDictSearchBtn.addEventListener("click", async () => {
+      const query = String(els.writingDictQuery.value || "").trim();
+      if (!query) return;
+      state.activeDocked = "dictionary";
+      renderDockPanels();
+      updateTabVisualState();
+      els.dictQuery.value = query;
+      els.dictExact.checked = Boolean(els.writingDictExact.checked);
+      await runDictionarySearch(query, els.writingDictExact.checked);
+    });
+  }
+
+  async function bootstrap() {
+    try {
+      const ret = await callApi("bootstrap");
+      applyWritingSettings(ret?.writing_settings || state.writing.settings);
+      els.writingStatus.textContent = ret?.writing_status || "";
+      renderDictionaryHistory(ret?.dictionary_history || []);
+
+      const initial = ret?.initial_tab === "writing" ? "writing" : "dictionary";
+      activateDocked(initial);
+      if (ret?.startup_query) {
+        els.dictQuery.value = ret.startup_query;
+        els.dictExact.checked = Boolean(ret.startup_exact);
+        await runDictionarySearch(ret.startup_query, ret.startup_exact);
+      }
+      await runWritingCheck(true);
+    } catch (err) {
+      toast(`初始化失败：${err.message}`, "warn", 3600);
+    }
+  }
+
+  function bindGlobal() {
+    els.modalCloseBtn.addEventListener("click", closeModal);
+    els.modalRoot.addEventListener("click", (e) => {
+      if (e.target === els.modalRoot) closeModal();
+    });
+  }
+
+  function init() {
+    bindBaseElements();
+    bindGlobal();
+    bindTabs();
+    bindSplitters();
+    bindDictionaryEvents();
+    bindWritingEvents();
+    renderDockPanels();
+    updateTabVisualState();
+    bootstrap();
+  }
+
+  if (document.readyState === "loading") {
+    window.addEventListener("DOMContentLoaded", init);
+  } else {
+    init();
+  }
+})();
