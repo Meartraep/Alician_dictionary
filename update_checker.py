@@ -9,8 +9,9 @@ import logging
 class UpdateChecker:
     """更新检查器，用于检测和更新translated.db文件"""
     
-    def __init__(self, local_db_path):
+    def __init__(self, local_db_path, app_settings=None):
         self.local_db_path = local_db_path
+        self.app_settings = app_settings
         self.github_repo = "Meartraep/Alician_dictionary"
         self.github_file_path = "translated.db"
         self.cdn_url = "https://cdn.jsdelivr.net/gh/Meartraep/Alician_dictionary@main/translated.db"
@@ -145,6 +146,12 @@ class UpdateChecker:
             return False
     
     def check_for_update(self):
+        if self.app_settings is not None and not self.app_settings.get_public_settings().get("auto_update", True):
+            self.logger.info("自动更新已关闭，跳过后台检查")
+            self.check_completed = True
+            self.update_needed = False
+            return
+
         """检查是否需要更新（后台执行）"""
         self.logger.info("开始后台检查更新...")
         
@@ -192,6 +199,14 @@ class UpdateChecker:
         self.logger.info(f"后台检查完成，需要更新: {self.update_needed}")
     
     def perform_update(self, parent_window=None):
+        if self.app_settings is not None and not self.app_settings.get_public_settings().get("auto_update", True):
+            self.logger.info("自动更新已关闭，跳过写入")
+            return True
+
+        if self.app_settings is not None and self.app_settings.detect_local_db_change():
+            self.logger.info("检测到本地数据库已更改，跳过自动更新写入")
+            return True
+
         """执行更新操作"""
         if not self.update_needed or not self.update_content:
             self.logger.info("无需更新")
@@ -205,6 +220,8 @@ class UpdateChecker:
                 f.write(self.update_content)
             # 计算更新后的SHA1值
             updated_sha1 = self.get_local_sha1()
+            if self.app_settings is not None:
+                self.app_settings.mark_database_updated_by_app()
             self.logger.info(f"从GitHub更新成功，更新后SHA1值: {updated_sha1}")
             return True
         except Exception as e:
@@ -215,6 +232,8 @@ class UpdateChecker:
             if self.download_from_cdn():
                 # 计算更新后的SHA1值
                 updated_sha1 = self.get_local_sha1()
+                if self.app_settings is not None:
+                    self.app_settings.mark_database_updated_by_app()
                 self.logger.info(f"从CDN更新成功，更新后SHA1值: {updated_sha1}")
                 return True
         

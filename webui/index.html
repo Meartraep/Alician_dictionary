@@ -1,0 +1,142 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Alician Unified Workspace</title>
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <div class="app-shell">
+    <header class="top-strip">
+      <div class="app-title">Alician 协作主窗口</div>
+      <div id="tabBar" class="tab-bar" aria-label="主标签栏">
+        <button class="tab-item active" type="button" draggable="true" data-app="dictionary">词典工具</button>
+        <button class="tab-item" type="button" draggable="true" data-app="writing">写作助手</button>
+        <button class="tab-item" type="button" draggable="false" data-app="settings">设置</button>
+      </div>
+    </header>
+
+    <main id="workspace" class="workspace">
+      <div id="dockHost" class="dock-host">
+        <section id="panel-dictionary" class="app-panel show" data-app-panel="dictionary">
+          <div class="panel-title">词典工具</div>
+          <div id="dictLayout" class="dictionary-layout">
+            <div class="dictionary-left card">
+              <div class="toolbar compact">
+                <input id="dictQuery" type="text" placeholder="输入词语后查询" />
+                <label class="check-inline">
+                  <input id="dictExact" type="checkbox" />
+                  精确
+                </label>
+                <button id="dictSearchBtn" type="button">查询</button>
+                <button id="dictHistoryBtn" type="button">历史</button>
+              </div>
+              <div id="dictHistory" class="history-pop hidden"></div>
+              <div id="dictResults" class="scroll-panel"></div>
+            </div>
+            <div id="dictSplit" class="splitter vertical" title="拖动调整左右占比"></div>
+
+            <div class="dictionary-right card">
+              <div class="panel-subtitle">例句与上下文</div>
+              <div id="dictExamples" class="scroll-panel"></div>
+            </div>
+          </div>
+        </section>
+
+        <section id="panel-writing" class="app-panel" data-app-panel="writing">
+          <div class="panel-title">写作助手</div>
+          <div class="writing-toolbar card">
+            <button id="writingImportBtn" type="button">导入TXT</button>
+            <button id="writingExportBtn" type="button">导出TXT</button>
+            <button id="writingSettingsBtn" type="button">设置</button>
+            <input id="writingDictQuery" type="text" placeholder="在词典工具中查询词语" />
+            <label class="check-inline">
+              <input id="writingDictExact" type="checkbox" />
+              精确
+            </label>
+            <button id="writingDictSearchBtn" type="button">词典查询</button>
+          </div>
+
+          <div id="writingWorkspace" class="writing-workspace">
+            <div id="writingTop" class="writing-top">
+              <div class="writing-main card">
+                <div id="writingEditor" class="rich-editor" contenteditable="true" spellcheck="false" data-placeholder="请输入或导入文本内容..."></div>
+              </div>
+              <div id="writingMainSplit" class="splitter vertical" title="拖动调整编辑区与侧边栏占比"></div>
+              <aside class="writing-side card">
+                <div class="side-title">高亮词列表（红优先）</div>
+                <div id="writingSidebar" class="scroll-panel"></div>
+              </aside>
+            </div>
+            <div id="writingBottomSplit" class="splitter horizontal" title="拖动调整上下区域占比"></div>
+            <div class="writing-bottom">
+              <div id="writingExplanation" class="explanation card">
+                选择右侧词条后，这里显示释义与相似词建议。
+              </div>
+              <div id="writingStatus" class="status-line"></div>
+            </div>
+          </div>
+
+          <section id="writingSettingsPanel" class="settings-panel hidden card">
+            <div class="settings-grid">
+              <label class="check-inline">
+                <input id="settingsStrictCase" type="checkbox" />
+                严格区分大小写
+              </label>
+              <label>
+                最大撤销步数
+                <input id="settingsUndo" type="number" min="1" max="1000" value="100" />
+              </label>
+            </div>
+
+            <div class="excluded-manager">
+              <div class="excluded-row">
+                <input id="excludedInput" type="text" placeholder="添加排除词" />
+                <button id="excludedAddBtn" type="button">添加</button>
+              </div>
+              <div id="excludedList" class="excluded-list"></div>
+            </div>
+
+            <div class="settings-actions">
+              <button id="settingsSaveBtn" type="button">保存设置</button>
+              <button id="settingsCloseBtn" type="button">关闭</button>
+            </div>
+          </section>
+        </section>
+
+        <section id="panel-settings" class="app-panel" data-app-panel="settings">
+          <div class="panel-title">设置</div>
+          <div class="settings-page card">
+            <label class="setting-row">
+              <span>
+                <strong>自动更新</strong>
+                <span id="autoUpdateStatus" class="setting-note"></span>
+              </span>
+              <input id="autoUpdateToggle" type="checkbox" role="switch" />
+            </label>
+          </div>
+        </section>
+      </div>
+
+      <div id="floatingLayer" class="floating-layer"></div>
+    </main>
+  </div>
+
+  <div id="modalRoot" class="modal-root hidden">
+    <div class="modal-card">
+      <div class="modal-head">
+        <div id="modalTitle" class="modal-title">详情</div>
+        <button id="modalCloseBtn" type="button" class="ghost">关闭</button>
+      </div>
+      <div id="modalBody" class="modal-body"></div>
+    </div>
+  </div>
+
+  <div id="toastRoot" class="toast-root"></div>
+
+  <input id="fileLoader" type="file" accept=".txt,text/plain" hidden />
+
+  <script src="./app.js"></script>
+</body>
+</html>
