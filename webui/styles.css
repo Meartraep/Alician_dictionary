@@ -76,6 +76,11 @@ body {
   color: var(--active);
 }
 
+.tab-item[data-app="settings"] {
+  margin-left: auto;
+  border-left: 1px solid #e8ecf3;
+}
+
 .workspace {
   position: relative;
   flex: 1;
@@ -543,6 +548,34 @@ button.small {
   gap: 8px;
 }
 
+.settings-page {
+  padding: 12px;
+}
+
+.setting-row {
+  min-height: 52px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  font-size: 14px;
+}
+
+.setting-row input[role="switch"] {
+  width: 44px;
+  height: 24px;
+  flex: 0 0 auto;
+  cursor: pointer;
+}
+
+.setting-note {
+  display: block;
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
 .floating-layer {
   position: absolute;
   inset: 0;
@@ -759,17 +792,26 @@ button.small {
 }
 
 @media (max-width: 980px) {
-  .dictionary-layout,
+  .dictionary-layout {
+    grid-template-columns: 1fr;
+    grid-template-rows: minmax(96px, var(--dict-left)) 8px minmax(96px, 1fr);
+  }
+
   .writing-top {
     grid-template-columns: 1fr;
+    grid-template-rows: minmax(96px, var(--writing-main)) 8px minmax(80px, 1fr);
   }
 
   .writing-workspace {
-    grid-template-rows: 1fr;
+    grid-template-rows: minmax(96px, var(--writing-top)) 8px minmax(64px, 1fr);
   }
 
-  .splitter {
-    display: none;
+  #dictSplit,
+  #writingMainSplit {
+    width: auto;
+    height: 8px;
+    cursor: row-resize;
+    margin: 6px 0;
   }
 
   .writing-toolbar {

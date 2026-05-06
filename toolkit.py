@@ -1,9 +1,10 @@
 import os
 import sys
+from pathlib import Path
 
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
-from update_checker import UpdateChecker
+from app_settings import AppSettings
 from unified_webui import launch_unified_webui
 
 
@@ -12,15 +13,22 @@ def main(
     startup_query: str = "",
     startup_exact: bool = False,
 ) -> None:
-    local_db_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "translated.db")
-    update_checker = UpdateChecker(local_db_path)
-    update_checker.start_background_check()
+    project_root = Path(__file__).resolve().parent
+    local_db_path = project_root / "translated.db"
+    app_settings = AppSettings(project_root / "app_settings.json", local_db_path)
+    update_checker = None
+    if app_settings.get_public_settings().get("auto_update", True):
+        from update_checker import UpdateChecker
+
+        update_checker = UpdateChecker(str(local_db_path), app_settings=app_settings)
+        update_checker.start_background_check()
 
     launch_unified_webui(
         initial_tab=initial_tab,
         startup_query=startup_query,
         startup_exact=startup_exact,
         update_checker=update_checker,
+        app_settings=app_settings,
     )
 
 

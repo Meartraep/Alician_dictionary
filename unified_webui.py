@@ -557,9 +557,11 @@ class UnifiedAPI:
         startup_query: Optional[str],
         startup_exact: bool,
         update_checker: Any = None,
+        app_settings: Any = None,
     ) -> None:
         self._lock = threading.RLock()
         self.update_checker = update_checker
+        self.app_settings = app_settings
         self.initial_tab = initial_tab if initial_tab in {"dictionary", "writing"} else "dictionary"
         self.startup_query = (startup_query or "").strip()
         self.startup_exact = bool(startup_exact)
@@ -575,11 +577,6 @@ class UnifiedAPI:
             daemon=True,
         )
         self._worker_thread.start()
-        self._worker_ready.wait(timeout=10)
-        if self._worker_failed is not None:
-            raise RuntimeError(f"Failed to initialize unified services: {self._worker_failed}") from self._worker_failed
-        if not self._worker_ready.is_set():
-            raise RuntimeError("Unified service worker startup timed out.")
 
     def _worker_loop(self) -> None:
         try:
@@ -617,6 +614,10 @@ class UnifiedAPI:
         if threading.current_thread() is self._worker_thread:
             return func(*args, **kwargs)
 
+        self._worker_ready.wait(timeout=30)
+        if not self._worker_ready.is_set():
+            raise RuntimeError("Unified service worker startup timed out.")
+
         if self._worker_failed is not None:
             raise RuntimeError(str(self._worker_failed)) from self._worker_failed
 
@@ -647,7 +648,27 @@ class UnifiedAPI:
         self._main_window = window
 
     def bootstrap(self) -> Dict[str, Any]:
-        return self._invoke(self._bootstrap_impl)
+        try:
+            writing_settings = ConfigManager().config
+        except Exception:
+            writing_settings = {"strict_case": True, "max_undo_steps": 100, "excluded_words": []}
+        try:
+            dictionary_history = HistoryManager().get_history()
+        except Exception:
+            dictionary_history = []
+        app_settings = self.app_settings.get_public_settings() if self.app_settings is not None else {
+            "auto_update": True,
+            "auto_update_status": "",
+        }
+        return {
+            "initial_tab": self.initial_tab,
+            "startup_query": self.startup_query,
+            "startup_exact": self.startup_exact,
+            "dictionary_history": dictionary_history,
+            "writing_settings": writing_settings,
+            "writing_status": "后台服务正在加载...",
+            "app_settings": app_settings,
+        }
 
     def detach_native_window(self, app_id: str, x: Optional[int] = None, y: Optional[int] = None) -> Dict[str, Any]:
         app = app_id if app_id in {"dictionary", "writing"} else ""
@@ -713,7 +734,10 @@ class UnifiedAPI:
         return self._invoke(self.dictionary_service.get_examples, word)
 
     def dictionary_update_lyric(self, title: str, album: str, lyric: str) -> Dict[str, Any]:
-        return self._invoke(self.dictionary_service.update_song_lyric, title, album, lyric)
+        ret = self._invoke(self.dictionary_service.update_song_lyric, title, album, lyric)
+        if ret and ret.get("ok") and self.app_settings is not None:
+            self.app_settings.mark_local_database_changed()
+        return ret
 
     def writing_check_text(self, text: str) -> Dict[str, Any]:
         return self._invoke(self.writing_service.check_text, text)
@@ -729,6 +753,17 @@ class UnifiedAPI:
 
     def writing_query_dictionary(self, query: str, exact_match: bool = False) -> Dict[str, Any]:
         return self._invoke(self.dictionary_service.search, query, bool(exact_match))
+
+    def app_get_settings(self) -> Dict[str, Any]:
+        if self.app_settings is None:
+            return {"auto_update": True, "auto_update_status": ""}
+        return self.app_settings.get_public_settings()
+
+    def app_save_settings(self, settings: Dict[str, Any]) -> Dict[str, Any]:
+        if self.app_settings is None:
+            return {"ok": False, "message": "设置管理器不可用。", "settings": self.app_get_settings()}
+        public = self.app_settings.set_auto_update(bool((settings or {}).get("auto_update", True)))
+        return {"ok": True, "message": "设置已保存。", "settings": public}
 
     def _writing_export_text_impl(self, content: str, suggested_name: str = "writing_assistant.txt") -> Dict[str, Any]:
         text = str(content or "")
@@ -792,8 +827,9 @@ def launch_unified_webui(
     startup_query: Optional[str] = None,
     startup_exact: bool = False,
     update_checker: Any = None,
+    app_settings: Any = None,
 ) -> None:
-    api = UnifiedAPI(initial_tab, startup_query, startup_exact, update_checker)
+    api = UnifiedAPI(initial_tab, startup_query, startup_exact, update_checker, app_settings)
     index_path = Path(__file__).resolve().parent / "webui" / "index.html"
     if not index_path.exists():
         raise FileNotFoundError(f"Web UI entry file not found: {index_path}")
@@ -810,6 +846,9 @@ def launch_unified_webui(
     api.set_main_window(main_window)
 
     try:
-        webview.start()
+        webview.start(
+            private_mode=False,
+            storage_path=str(PROJECT_ROOT / ".webview_profile"),
+        )
     finally:
         api.shutdown()

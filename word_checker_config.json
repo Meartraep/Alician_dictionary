@@ -6,6 +6,10 @@
   "excluded_words": [
     "S",
     "V",
-    "O"
+    "O",
+    "n",
+    "adj",
+    "prep",
+    "adv"
   ]
 }

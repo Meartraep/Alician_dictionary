@@ -193,6 +193,9 @@ class WordChecker:
         """检查不在词组中的独立单词"""
         unknown_count = 0
         
+        # 获取排除项列表
+        excluded_words = self.config_manager.get("excluded_words", [])
+        
         # 遍历所有单词
         for match in self.WORD_PATTERN.finditer(text):
             word = match.group()
@@ -202,6 +205,10 @@ class WordChecker:
             # 检查单词是否在已知词组中
             if self._is_word_in_phrase(start, end, matched_phrases):
                 continue  # 跳过词组中的单词
+            
+            # 检查单词是否在排除项中
+            if word in excluded_words:
+                continue  # 跳过排除项中的单词
             
             start_pos = self.get_text_index(text, start)
             end_pos = self.get_text_index(text, end)
@@ -398,6 +405,11 @@ class WordChecker:
     
     def _process_single_word(self, word, start_pos, end_pos, global_start, tags_to_add):
         """处理单个单词，返回是否为未知单词"""
+        # 检查单词是否在排除项中
+        excluded_words = self.config_manager.get("excluded_words", [])
+        if word in excluded_words:
+            return False  # 排除项中的单词视为已知，不返回未知计数
+        
         is_known, key_for_stats, map_key = self.highlight_manager.check_word_status(word)
         
         if not is_known:

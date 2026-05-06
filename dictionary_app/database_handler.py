@@ -174,6 +174,43 @@ class DatabaseHandler:
         result = self.cursor.fetchone()
         return result if result else None
 
+    def update_song_lyric(self, title: str, album: str, new_lyric: str) -> bool:
+        """
+        更新歌曲的歌词内容
+        :param title: 歌曲标题
+        :param album: 专辑名称
+        :param new_lyric: 新的歌词内容
+        :return: 是否更新成功
+        """
+        if not self.cursor or not self.conn:
+            return False
+        
+        try:
+            # 使用标题和专辑作为唯一标识来更新歌词
+            self.cursor.execute(
+                "UPDATE songs SET lyric = ? WHERE title = ? AND Album = ?",
+                (new_lyric, title.strip(), album.strip())
+            )
+            
+            # 检查是否有行被更新
+            if self.cursor.rowcount > 0:
+                self.conn.commit()
+                return True
+            else:
+                # 如果没有匹配的记录，尝试只根据标题更新
+                self.cursor.execute(
+                    "UPDATE songs SET lyric = ? WHERE title = ?",
+                    (new_lyric, title.strip())
+                )
+                if self.cursor.rowcount > 0:
+                    self.conn.commit()
+                    return True
+                return False
+                
+        except sqlite3.Error as e:
+            print(f"数据库更新错误: {str(e)}")
+            return False
+
     def close(self) -> None:
         if self.conn:
             self.conn.close()

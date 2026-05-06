@@ -13,6 +13,7 @@
       <div id="tabBar" class="tab-bar" aria-label="主标签栏">
         <button class="tab-item active" type="button" draggable="true" data-app="dictionary">词典工具</button>
         <button class="tab-item" type="button" draggable="true" data-app="writing">写作助手</button>
+        <button class="tab-item" type="button" draggable="false" data-app="settings">设置</button>
       </div>
     </header>
 
@@ -102,6 +103,19 @@
               <button id="settingsCloseBtn" type="button">关闭</button>
             </div>
           </section>
+        </section>
+
+        <section id="panel-settings" class="app-panel" data-app-panel="settings">
+          <div class="panel-title">设置</div>
+          <div class="settings-page card">
+            <label class="setting-row">
+              <span>
+                <strong>自动更新</strong>
+                <span id="autoUpdateStatus" class="setting-note"></span>
+              </span>
+              <input id="autoUpdateToggle" type="checkbox" role="switch" />
+            </label>
+          </div>
         </section>
       </div>
 

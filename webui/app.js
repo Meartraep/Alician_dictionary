@@ -1,8 +1,10 @@
 (() => {
-  const APP_IDS = ["dictionary", "writing"];
+  const APP_IDS = ["dictionary", "writing", "settings"];
+  const DETACHABLE_APP_IDS = ["dictionary", "writing"];
   const APP_TITLES = {
     dictionary: "词典工具",
     writing: "写作助手",
+    settings: "设置",
   };
 
   const STORAGE_KEYS = {
@@ -20,7 +22,7 @@
 
   const WINDOW_PARAMS = getWindowParams();
   const NATIVE_APP_ID = WINDOW_PARAMS.get("app");
-  const IS_NATIVE_DETACHED = WINDOW_PARAMS.get("window") === "detached" && APP_IDS.includes(NATIVE_APP_ID);
+  const IS_NATIVE_DETACHED = WINDOW_PARAMS.get("window") === "detached" && DETACHABLE_APP_IDS.includes(NATIVE_APP_ID);
 
   const state = {
     isNativeDetached: IS_NATIVE_DETACHED,
@@ -31,6 +33,7 @@
     apps: {
       dictionary: { detached: false, floatingWindow: null },
       writing: { detached: false, floatingWindow: null },
+      settings: { detached: false, floatingWindow: null },
     },
     dictionary: {
       currentExamplesPayload: null,
@@ -45,6 +48,10 @@
       selectedSidebarKey: "",
       infoPopup: null,
       isComposing: false,
+    },
+    settings: {
+      autoUpdate: true,
+      status: "",
     },
   };
 
@@ -193,6 +200,7 @@
       "writingImportBtn", "writingExportBtn", "writingSettingsBtn", "writingSettingsPanel",
       "writingDictQuery", "writingDictExact", "writingDictSearchBtn",
       "settingsStrictCase", "settingsUndo", "excludedInput", "excludedAddBtn", "excludedList", "settingsSaveBtn", "settingsCloseBtn",
+      "autoUpdateToggle", "autoUpdateStatus",
       "fileLoader",
     ];
     for (const id of ids) els[id] = document.getElementById(id);
@@ -292,7 +300,7 @@
   }
 
   async function detachAppToNativeWindow(appId, event) {
-    if (state.isNativeDetached || state.apps[appId]?.detached) return;
+    if (state.isNativeDetached || !DETACHABLE_APP_IDS.includes(appId) || state.apps[appId]?.detached) return;
     saveModuleSnapshot(appId);
     try {
       const ret = await callApi("detach_native_window", appId, Math.round(event.screenX), Math.round(event.screenY));
@@ -417,7 +425,9 @@
     const tabs = els.tabBar.querySelectorAll(".tab-item");
     tabs.forEach((tab) => {
       const appId = tab.dataset.app;
+      tab.draggable = DETACHABLE_APP_IDS.includes(appId);
       tab.addEventListener("click", () => activateDocked(appId));
+      if (!DETACHABLE_APP_IDS.includes(appId)) return;
       tab.addEventListener("dragstart", () => {
         state.dragTabAppId = appId;
       });
@@ -453,16 +463,24 @@
       });
     };
 
+    const isNarrowLayout = () => window.matchMedia("(max-width: 980px)").matches;
+
     startDrag(els.dictSplit, (evt) => {
       const rect = els.dictLayout.getBoundingClientRect();
-      const ratio = clamp(((evt.clientX - rect.left) / rect.width) * 100, 15, 85);
+      const rawRatio = isNarrowLayout()
+        ? ((evt.clientY - rect.top) / rect.height) * 100
+        : ((evt.clientX - rect.left) / rect.width) * 100;
+      const ratio = clamp(rawRatio, 15, 85);
       document.documentElement.style.setProperty("--dict-left", `${ratio}%`);
       saveRatio(STORAGE_KEYS.dictLeft, ratio);
     });
 
     startDrag(els.writingMainSplit, (evt) => {
       const rect = els.writingTop.getBoundingClientRect();
-      const ratio = clamp(((evt.clientX - rect.left) / rect.width) * 100, 25, 90);
+      const rawRatio = isNarrowLayout()
+        ? ((evt.clientY - rect.top) / rect.height) * 100
+        : ((evt.clientX - rect.left) / rect.width) * 100;
+      const ratio = clamp(rawRatio, 25, 90);
       document.documentElement.style.setProperty("--writing-main", `${ratio}%`);
       saveRatio(STORAGE_KEYS.writingMain, ratio);
     });
@@ -1082,6 +1100,13 @@
     renderExcludedWords(state.writing.settings.excluded_words || []);
   }
 
+  function applyAppSettings(settings) {
+    state.settings.autoUpdate = Boolean(settings?.auto_update);
+    state.settings.status = String(settings?.auto_update_status || "");
+    if (els.autoUpdateToggle) els.autoUpdateToggle.checked = state.settings.autoUpdate;
+    if (els.autoUpdateStatus) els.autoUpdateStatus.textContent = state.settings.status;
+  }
+
   function renderExcludedWords(words) {
     const source = Array.isArray(words) ? words : [];
     const normalized = [];
@@ -1241,7 +1266,9 @@
       state.writing.selectedSidebarKey = "";
       closeInfoPopup();
       saveModuleSnapshot("writing");
-      await runWritingCheck(true);
+      if (getEditorText().trim()) {
+        await runWritingCheck(true);
+      }
       toast(`已导入：${file.name}`);
     });
 
@@ -1327,10 +1354,26 @@
     });
   }
 
+  function bindAppSettingsEvents() {
+    if (!els.autoUpdateToggle) return;
+    els.autoUpdateToggle.addEventListener("change", async () => {
+      const nextValue = Boolean(els.autoUpdateToggle.checked);
+      try {
+        const ret = await callApi("app_save_settings", { auto_update: nextValue });
+        applyAppSettings(ret?.settings || { auto_update: nextValue });
+        toast(ret?.message || "设置已保存。", ret?.ok ? "info" : "warn");
+      } catch (err) {
+        els.autoUpdateToggle.checked = state.settings.autoUpdate;
+        toast(`保存设置失败：${err.message}`, "warn", 3200);
+      }
+    });
+  }
+
   async function bootstrap() {
     try {
       const ret = await callApi("bootstrap");
       applyWritingSettings(ret?.writing_settings || state.writing.settings);
+      applyAppSettings(ret?.app_settings || state.settings);
       els.writingStatus.textContent = ret?.writing_status || "";
       renderDictionaryHistory(ret?.dictionary_history || []);
 
@@ -1374,6 +1417,7 @@
     bindSplitters();
     bindDictionaryEvents();
     bindWritingEvents();
+    bindAppSettingsEvents();
     renderDockPanels();
     updateTabVisualState();
     bootstrap();

@@ -13,6 +13,8 @@ class GUIManager:
         self.on_undo_callback = on_undo_callback
         self.on_check_callback = on_check_callback
         self.on_settings_callback = on_settings_callback
+        # 排除项变化回调
+        self.on_exclude_change_callback = None
         
         # 拖动相关变量
         self.is_dragging = False
@@ -190,15 +192,30 @@ class GUIManager:
         import sys
         import os
         
-        # 获取当前目录
-        current_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        dictionary_script = os.path.join(current_dir, 'run_dictionary.py')
-        
-        # 构建命令行参数
-        args = [sys.executable, dictionary_script, query, str(exact_match)]
-        
-        # 启动 Dictionary_app
-        subprocess.Popen(args)
+        # 检查是否在打包环境中运行
+        if getattr(sys, 'frozen', False):
+            # 在打包环境中，直接启动查词器的可执行文件
+            try:
+                # 获取当前可执行文件的目录
+                current_exe_dir = os.path.dirname(os.path.abspath(sys.executable))
+                
+                # 查词器可执行文件路径（假设与写作助手在同一目录）
+                dictionary_exe = os.path.join(current_exe_dir, 'dictionary_app_new.exe')
+                
+                # 检查可执行文件是否存在
+                if os.path.exists(dictionary_exe):
+                    # 启动查词器，传递搜索词和精确匹配参数
+                    subprocess.Popen([dictionary_exe, query, str(exact_match)])
+                else:
+                    # 如果可执行文件不存在，显示错误信息
+                    messagebox.showerror("错误", f"查词器可执行文件不存在: {dictionary_exe}")
+            except Exception as e:
+                messagebox.showerror("错误", f"启动查词器失败: {str(e)}")
+        else:
+            # 在开发环境中，使用Python解释器运行脚本
+            project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            dictionary_script = os.path.join(project_root, 'run_dictionary.py')
+            subprocess.Popen([sys.executable, dictionary_script, query, str(exact_match)], cwd=project_root)
     
     # ---------------------- 拖动分隔条功能 ----------------------
     def start_drag(self, event):
@@ -254,7 +271,7 @@ class GUIManager:
         """创建设置窗口"""
         settings_window = tk.Toplevel(self.root)
         settings_window.title("设置")
-        settings_window.geometry("350x200")
+        settings_window.geometry("450x400")
         settings_window.transient(self.root)
         settings_window.grab_set()
         
@@ -285,6 +302,41 @@ class GUIManager:
         )
         undo_spin.pack(side=tk.LEFT, padx=10)
         
+        # 排除项管理
+        exclude_frame = ttk.LabelFrame(settings_window, text="排除项管理")
+        exclude_frame.pack(fill=tk.BOTH, expand=True, padx=20, pady=15)
+        
+        # 输入框和添加按钮
+        input_frame = ttk.Frame(exclude_frame)
+        input_frame.pack(fill=tk.X, pady=5)
+        
+        ttk.Label(input_frame, text="添加排除词：").pack(side=tk.LEFT)
+        self.exclude_word_var = tk.StringVar()
+        exclude_entry = ttk.Entry(input_frame, textvariable=self.exclude_word_var, width=30)
+        exclude_entry.pack(side=tk.LEFT, padx=5, fill=tk.X, expand=True)
+        ttk.Button(input_frame, text="添加", command=self.add_excluded_word).pack(side=tk.LEFT, padx=5)
+        
+        # 排除项列表
+        list_frame = ttk.Frame(exclude_frame)
+        list_frame.pack(fill=tk.BOTH, expand=True, pady=5)
+        
+        ttk.Label(list_frame, text="当前排除项：").pack(anchor=tk.W)
+        
+        # 列表框
+        self.excluded_words_list = tk.Listbox(list_frame, height=8)
+        self.excluded_words_list.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=5)
+        
+        # 滚动条
+        scrollbar = ttk.Scrollbar(list_frame, orient=tk.VERTICAL, command=self.excluded_words_list.yview)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        self.excluded_words_list.config(yscrollcommand=scrollbar.set)
+        
+        # 删除按钮
+        ttk.Button(exclude_frame, text="删除选中项", command=self.remove_excluded_word).pack(anchor=tk.W, pady=5)
+        
+        # 加载当前排除项
+        self.load_excluded_words()
+        
         # 按钮区域
         btn_frame = ttk.Frame(settings_window)
         btn_frame.pack(fill=tk.X, padx=20, pady=10)
@@ -293,6 +345,65 @@ class GUIManager:
         ttk.Button(btn_frame, text="取消", command=settings_window.destroy).pack(side=tk.RIGHT, padx=5)
         
         return settings_window
+    
+    def load_excluded_words(self):
+        """加载当前排除项到列表框"""
+        # 清空列表
+        self.excluded_words_list.delete(0, tk.END)
+        
+        # 添加当前排除项
+        excluded_words = self.config_manager.get("excluded_words", [])
+        for word in excluded_words:
+            self.excluded_words_list.insert(tk.END, word)
+    
+    def add_excluded_word(self):
+        """添加排除词"""
+        word = self.exclude_word_var.get().strip()
+        if word:
+            # 检查是否已存在
+            excluded_words = self.config_manager.get("excluded_words", [])
+            if word not in excluded_words:
+                # 添加到配置
+                excluded_words.append(word)
+                self.config_manager.set("excluded_words", excluded_words)
+                
+                # 保存配置到文件
+                self.config_manager.save_config()
+                
+                # 添加到列表框
+                self.excluded_words_list.insert(tk.END, word)
+                
+                # 清空输入框
+                self.exclude_word_var.set("")
+                
+                # 触发排除项变化回调
+                if self.on_exclude_change_callback:
+                    self.on_exclude_change_callback()
+    
+    def remove_excluded_word(self):
+        """删除选中的排除词"""
+        selected_indices = self.excluded_words_list.curselection()
+        if selected_indices:
+            # 获取选中的单词
+            selected_words = [self.excluded_words_list.get(idx) for idx in selected_indices]
+            
+            # 从配置中移除
+            excluded_words = self.config_manager.get("excluded_words", [])
+            for word in selected_words:
+                if word in excluded_words:
+                    excluded_words.remove(word)
+            self.config_manager.set("excluded_words", excluded_words)
+            
+            # 保存配置到文件
+            self.config_manager.save_config()
+            
+            # 从列表框中移除
+            for idx in reversed(selected_indices):  # 倒序删除避免索引变化
+                self.excluded_words_list.delete(idx)
+                
+            # 触发排除项变化回调
+            if self.on_exclude_change_callback:
+                self.on_exclude_change_callback()
     
     def save_settings(self, window, on_save_settings_callback):
         """保存设置并关闭窗口"""
@@ -312,6 +423,10 @@ class GUIManager:
     def set_on_closing_callback(self, callback):
         """设置窗口关闭回调"""
         self.on_closing_callback = callback
+    
+    def set_on_exclude_change_callback(self, callback):
+        """设置排除项变化回调"""
+        self.on_exclude_change_callback = callback
     
     # ---------------------- 获取组件引用 ----------------------
     def get_text_area(self):

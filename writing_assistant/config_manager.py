@@ -12,7 +12,8 @@ class ConfigManager:
             "strict_case": True, 
             "max_undo_steps": 100, 
             "text_width": 500, 
-            "sidebar_width": 260
+            "sidebar_width": 260,
+            "excluded_words": []
         }
         self.config = self.load_config()
     
