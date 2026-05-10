@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import re
 import sys
@@ -842,6 +842,7 @@ def launch_unified_webui(
         height=860,
         resizable=True,
         text_select=True,
+        confirm_close=True,
     )
     api.set_main_window(main_window)
 

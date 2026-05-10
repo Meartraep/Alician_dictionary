@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>欢迎</title>
+  <style>
+    :root {
+      --bg: #eef2f7;
+      --surface: #ffffff;
+      --border: #d7dde5;
+      --text: #1d2a3a;
+      --muted: #637083;
+      --active: #409eff;
+      --active-soft: #eaf4ff;
+    }
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+    html, body {
+      width: 100%;
+      height: 100%;
+      font-family: "Segoe UI", "Microsoft YaHei", sans-serif;
+      color: var(--text);
+      background: linear-gradient(135deg, #f0f5ff 0%, #dce6f7 100%);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .welcome-card {
+      background: var(--surface);
+      border-radius: 12px;
+      box-shadow: 0 8px 32px rgba(23, 40, 65, 0.12);
+      width: 520px;
+      max-width: 94vw;
+      max-height: 90vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    .welcome-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 16px 20px;
+      border-bottom: 1px solid var(--border);
+    }
+    .welcome-header h1 {
+      font-size: 18px;
+      font-weight: 700;
+      color: var(--text);
+    }
+    .close-btn {
+      width: 32px;
+      height: 32px;
+      border: 0;
+      border-radius: 6px;
+      background: transparent;
+      color: var(--muted);
+      font-size: 20px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: background 0.15s, color 0.15s;
+    }
+    .close-btn:hover {
+      background: #f0f0f0;
+      color: #333;
+    }
+    .welcome-body {
+      padding: 24px 20px;
+      flex: 1;
+      overflow-y: auto;
+    }
+    .welcome-greeting {
+      font-size: 16px;
+      font-weight: 600;
+      color: var(--text);
+      margin-bottom: 16px;
+      line-height: 1.6;
+    }
+    .welcome-section {
+      margin-bottom: 20px;
+    }
+    .welcome-section-title {
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--muted);
+      margin-bottom: 8px;
+      padding-bottom: 6px;
+      border-bottom: 1px solid var(--border);
+    }
+    .welcome-section-body {
+      font-size: 13px;
+      color: var(--muted);
+      line-height: 1.7;
+    }
+    .welcome-footer {
+      padding: 12px 20px;
+      border-top: 1px solid var(--border);
+      display: flex;
+      justify-content: flex-end;
+    }
+    .welcome-footer button {
+      padding: 8px 24px;
+      border: 0;
+      border-radius: 6px;
+      background: var(--active);
+      color: #fff;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    .welcome-footer button:hover {
+      background: #3795e5;
+    }
+    .license-area {
+      margin-top: 16px;
+      background: #f8fafc;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 12px;
+      max-height: 180px;
+      overflow-y: auto;
+      font-size: 12px;
+      color: var(--muted);
+      line-height: 1.6;
+    }
+  </style>
+</head>
+<body>
+  <div class="welcome-card">
+    <div class="welcome-header">
+      <h1>欢迎</h1>
+      <button class="close-btn" id="closeBtn" title="关闭">&#x2715;</button>
+    </div>
+
+    <div class="welcome-body">
+      <p class="welcome-greeting">🎉 欢迎使用Meartraep的小工具！</p>
+
+      <div class="welcome-section">
+        <div class="welcome-section-title">快速开始</div>
+        <div class="welcome-section-body">
+          本工具集成了词典查询、写作助手等功能，帮助你更好地学习和使用爱丽丝语。
+        </div>
+      </div>
+
+      <div class="welcome-section" id="licenseSection" style="display: none;">
+        <div class="welcome-section-title">使用协议</div>
+        <div class="license-area" id="licenseContent">
+          <!-- 协议内容将在后续版本中添加 -->
+        </div>
+      </div>
+    </div>
+
+    <div class="welcome-footer">
+      <button id="enterBtn">进入程序</button>
+    </div>
+  </div>
+
+  <script>
+    (function() {
+      var closeBtn = document.getElementById("closeBtn");
+      var enterBtn = document.getElementById("enterBtn");
+
+      function closeWindow() {
+        if (window.pywebview && window.pywebview.api) {
+          window.pywebview.api.close();
+        }
+      }
+
+      closeBtn.addEventListener("click", closeWindow);
+      enterBtn.addEventListener("click", closeWindow);
+
+      document.addEventListener("keydown", function(e) {
+        if (e.key === "Escape") {
+          closeWindow();
+        }
+      });
+    })();
+  </script>
+</body>
+</html>

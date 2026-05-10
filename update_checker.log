@@ -601,3 +601,130 @@
 2026-05-06 23:30:39,788 - INFO - 数据库文件已是最新版本: SHA1=fa9aa609259578db6199c700de331e4f32ad721a
 2026-05-06 23:30:39,788 - INFO - 后台检查完成，需要更新: False
 2026-05-06 23:31:02,476 - INFO - 无需更新
+2026-05-06 23:43:38,864 - INFO - 日志文件已配置: C:\Users\25307\Desktop\Alician_dictionary-26_2_18\update_checker.log
+2026-05-06 23:43:38,867 - INFO - 开始后台检查更新...
+2026-05-06 23:43:38,870 - INFO - 本地数据库文件SHA1值: fa9aa609259578db6199c700de331e4f32ad721a
+2026-05-06 23:43:40,226 - INFO - 从https://raw.githubusercontent.com/Meartraep/Alician_dictionary/main/translated.db获取文件内容成功，大小: 720896字节
+2026-05-06 23:43:40,227 - INFO - 数据库文件已是最新版本: SHA1=fa9aa609259578db6199c700de331e4f32ad721a
+2026-05-06 23:43:40,227 - INFO - 后台检查完成，需要更新: False
+2026-05-06 23:54:18,683 - INFO - 日志文件已配置: C:\Users\25307\Desktop\Alician_dictionary-26_2_18\update_checker.log
+2026-05-06 23:54:18,685 - INFO - 开始后台检查更新...
+2026-05-06 23:54:18,689 - INFO - 本地数据库文件SHA1值: fa9aa609259578db6199c700de331e4f32ad721a
+2026-05-06 23:54:20,393 - INFO - 从https://raw.githubusercontent.com/Meartraep/Alician_dictionary/main/translated.db获取文件内容成功，大小: 720896字节
+2026-05-06 23:54:20,394 - INFO - 数据库文件已是最新版本: SHA1=fa9aa609259578db6199c700de331e4f32ad721a
+2026-05-06 23:54:20,394 - INFO - 后台检查完成，需要更新: False
+2026-05-06 23:54:45,721 - INFO - 无需更新
+2026-05-07 00:44:15,294 - INFO - 无需更新
+2026-05-09 21:01:50,795 - INFO - 日志文件已配置: C:\Users\25307\Desktop\Alician_dictionary-26_2_18\update_checker.log
+2026-05-09 21:01:50,798 - INFO - 开始后台检查更新...
+2026-05-09 21:01:50,801 - INFO - 本地数据库文件SHA1值: fa9aa609259578db6199c700de331e4f32ad721a
+2026-05-09 21:02:01,362 - ERROR - 从https://raw.githubusercontent.com/Meartraep/Alician_dictionary/main/translated.db获取文件内容失败: HTTPSConnectionPool(host='raw.githubusercontent.com', port=443): Read timed out. (read timeout=10)
+2026-05-09 21:02:21,419 - ERROR - 从https://mirror.ghproxy.com/https://raw.githubusercontent.com/Meartraep/Alician_dictionary/main/translated.db获取文件内容失败: HTTPSConnectionPool(host='mirror.ghproxy.com', port=443): Max retries exceeded with url: /https://raw.githubusercontent.com/Meartraep/Alician_dictionary/main/translated.db (Caused by ConnectTimeoutError(<HTTPSConnection(host='mirror.ghproxy.com', port=443) at 0x160508b7510>, 'Connection to mirror.ghproxy.com timed out. (connect timeout=10)'))
+2026-05-09 21:02:21,420 - WARNING - 无法获取GitHub文件内容
+2026-05-09 21:02:21,420 - INFO - 方法1失败，尝试方法2
+2026-05-09 21:02:23,945 - INFO - 从https://api.github.com/repos/Meartraep/Alician_dictionary/contents/translated.db获取SHA值成功: 6b142e8d28d89ed7d7c604cd296aa999dd8b1edc
+2026-05-09 21:02:35,623 - ERROR - 从https://raw.githubusercontent.com/Meartraep/Alician_dictionary/main/translated.db获取文件内容失败: HTTPSConnectionPool(host='raw.githubusercontent.com', port=443): Read timed out.
+2026-05-09 21:02:55,635 - ERROR - 从https://mirror.ghproxy.com/https://raw.githubusercontent.com/Meartraep/Alician_dictionary/main/translated.db获取文件内容失败: HTTPSConnectionPool(host='mirror.ghproxy.com', port=443): Max retries exceeded with url: /https://raw.githubusercontent.com/Meartraep/Alician_dictionary/main/translated.db (Caused by ConnectTimeoutError(<HTTPSConnection(host='mirror.ghproxy.com', port=443) at 0x1605059da50>, 'Connection to mirror.ghproxy.com timed out. (connect timeout=10)'))
+2026-05-09 21:02:55,636 - WARNING - 无法获取GitHub文件内容
+2026-05-09 21:02:55,636 - WARNING - 无法获取文件内容，跳过更新
+2026-05-09 21:02:55,636 - INFO - 后台检查完成，需要更新: False
+2026-05-09 23:01:49,238 - INFO - 日志文件已配置: C:\Users\25307\Desktop\Alician_dictionary-26_2_18\update_checker.log
+2026-05-09 23:01:49,240 - INFO - 开始后台检查更新...
+2026-05-09 23:01:49,248 - INFO - 本地数据库文件SHA1值: fa9aa609259578db6199c700de331e4f32ad721a
+2026-05-09 23:01:52,521 - INFO - 无需更新
+2026-05-09 23:01:55,880 - INFO - 日志文件已配置: C:\Users\25307\Desktop\Alician_dictionary-26_2_18\update_checker.log
+2026-05-09 23:01:55,882 - INFO - 开始后台检查更新...
+2026-05-09 23:01:55,886 - INFO - 本地数据库文件SHA1值: fa9aa609259578db6199c700de331e4f32ad721a
+2026-05-09 23:02:00,748 - INFO - 无需更新
+2026-05-09 23:02:34,741 - INFO - 日志文件已配置: C:\Users\25307\Desktop\Alician_dictionary-26_2_18\update_checker.log
+2026-05-09 23:02:34,743 - INFO - 开始后台检查更新...
+2026-05-09 23:02:34,745 - INFO - 本地数据库文件SHA1值: fa9aa609259578db6199c700de331e4f32ad721a
+2026-05-09 23:02:38,762 - INFO - 无需更新
+2026-05-09 23:03:12,289 - INFO - 日志文件已配置: C:\Users\25307\Desktop\Alician_dictionary-26_2_18\update_checker.log
+2026-05-09 23:03:12,292 - INFO - 开始后台检查更新...
+2026-05-09 23:03:12,294 - INFO - 本地数据库文件SHA1值: fa9aa609259578db6199c700de331e4f32ad721a
+2026-05-09 23:03:33,877 - ERROR - 从https://raw.githubusercontent.com/Meartraep/Alician_dictionary/main/translated.db获取文件内容失败: HTTPSConnectionPool(host='raw.githubusercontent.com', port=443): Read timed out. (read timeout=10)
+2026-05-09 23:03:53,933 - ERROR - 从https://mirror.ghproxy.com/https://raw.githubusercontent.com/Meartraep/Alician_dictionary/main/translated.db获取文件内容失败: HTTPSConnectionPool(host='mirror.ghproxy.com', port=443): Max retries exceeded with url: /https://raw.githubusercontent.com/Meartraep/Alician_dictionary/main/translated.db (Caused by ConnectTimeoutError(<HTTPSConnection(host='mirror.ghproxy.com', port=443) at 0x200c906b990>, 'Connection to mirror.ghproxy.com timed out. (connect timeout=10)'))
+2026-05-09 23:03:53,934 - WARNING - 无法获取GitHub文件内容
+2026-05-09 23:03:53,934 - INFO - 方法1失败，尝试方法2
+2026-05-09 23:03:56,473 - INFO - 从https://api.github.com/repos/Meartraep/Alician_dictionary/contents/translated.db获取SHA值成功: 6b142e8d28d89ed7d7c604cd296aa999dd8b1edc
+2026-05-09 23:04:48,515 - INFO - 从https://raw.githubusercontent.com/Meartraep/Alician_dictionary/main/translated.db获取文件内容成功，大小: 720896字节
+2026-05-09 23:04:48,517 - INFO - 数据库文件已是最新版本: SHA1=fa9aa609259578db6199c700de331e4f32ad721a
+2026-05-09 23:04:48,517 - INFO - 后台检查完成，需要更新: False
+2026-05-09 23:16:44,794 - INFO - 无需更新
+2026-05-09 23:21:01,994 - INFO - 日志文件已配置: C:\Users\25307\Desktop\Alician_dictionary-26_2_18\update_checker.log
+2026-05-09 23:21:01,996 - INFO - 开始后台检查更新...
+2026-05-09 23:21:01,998 - INFO - 本地数据库文件SHA1值: fa9aa609259578db6199c700de331e4f32ad721a
+2026-05-09 23:21:12,910 - ERROR - 从https://raw.githubusercontent.com/Meartraep/Alician_dictionary/main/translated.db获取文件内容失败: HTTPSConnectionPool(host='raw.githubusercontent.com', port=443): Read timed out.
+2026-05-09 23:21:21,111 - INFO - 无需更新
+2026-05-09 23:25:30,831 - INFO - 日志文件已配置: C:\Users\25307\Desktop\Alician_dictionary-26_2_18\update_checker.log
+2026-05-09 23:25:30,833 - INFO - 开始后台检查更新...
+2026-05-09 23:25:30,868 - INFO - 本地数据库文件SHA1值: fa9aa609259578db6199c700de331e4f32ad721a
+2026-05-09 23:25:32,132 - INFO - 无需更新
+2026-05-09 23:26:01,092 - INFO - 日志文件已配置: C:\Users\25307\Desktop\Alician_dictionary-26_2_18\update_checker.log
+2026-05-09 23:26:01,094 - INFO - 开始后台检查更新...
+2026-05-09 23:26:01,116 - INFO - 本地数据库文件SHA1值: fa9aa609259578db6199c700de331e4f32ad721a
+2026-05-09 23:26:22,989 - ERROR - 从https://raw.githubusercontent.com/Meartraep/Alician_dictionary/main/translated.db获取文件内容失败: HTTPSConnectionPool(host='raw.githubusercontent.com', port=443): Read timed out.
+2026-05-09 23:26:43,016 - ERROR - 从https://mirror.ghproxy.com/https://raw.githubusercontent.com/Meartraep/Alician_dictionary/main/translated.db获取文件内容失败: HTTPSConnectionPool(host='mirror.ghproxy.com', port=443): Max retries exceeded with url: /https://raw.githubusercontent.com/Meartraep/Alician_dictionary/main/translated.db (Caused by ConnectTimeoutError(<HTTPSConnection(host='mirror.ghproxy.com', port=443) at 0x188cb5fb550>, 'Connection to mirror.ghproxy.com timed out. (connect timeout=10)'))
+2026-05-09 23:26:43,017 - WARNING - 无法获取GitHub文件内容
+2026-05-09 23:26:43,017 - INFO - 方法1失败，尝试方法2
+2026-05-09 23:26:45,493 - INFO - 从https://api.github.com/repos/Meartraep/Alician_dictionary/contents/translated.db获取SHA值成功: 6b142e8d28d89ed7d7c604cd296aa999dd8b1edc
+2026-05-09 23:26:57,724 - ERROR - 从https://raw.githubusercontent.com/Meartraep/Alician_dictionary/main/translated.db获取文件内容失败: HTTPSConnectionPool(host='raw.githubusercontent.com', port=443): Read timed out.
+2026-05-09 23:27:17,753 - ERROR - 从https://mirror.ghproxy.com/https://raw.githubusercontent.com/Meartraep/Alician_dictionary/main/translated.db获取文件内容失败: HTTPSConnectionPool(host='mirror.ghproxy.com', port=443): Max retries exceeded with url: /https://raw.githubusercontent.com/Meartraep/Alician_dictionary/main/translated.db (Caused by ConnectTimeoutError(<HTTPSConnection(host='mirror.ghproxy.com', port=443) at 0x188ca9a6a50>, 'Connection to mirror.ghproxy.com timed out. (connect timeout=10)'))
+2026-05-09 23:27:17,753 - WARNING - 无法获取GitHub文件内容
+2026-05-09 23:27:17,753 - WARNING - 无法获取文件内容，跳过更新
+2026-05-09 23:27:17,753 - INFO - 后台检查完成，需要更新: False
+2026-05-09 23:28:18,683 - INFO - 无需更新
+2026-05-09 23:48:54,984 - INFO - 日志文件已配置: C:\Users\25307\Desktop\Alician_dictionary-26_2_18\update_checker.log
+2026-05-09 23:48:54,987 - INFO - 开始后台检查更新...
+2026-05-09 23:48:54,992 - INFO - 本地数据库文件SHA1值: fa9aa609259578db6199c700de331e4f32ad721a
+2026-05-09 23:49:05,105 - INFO - 从https://raw.githubusercontent.com/Meartraep/Alician_dictionary/main/translated.db获取文件内容成功，大小: 720896字节
+2026-05-09 23:49:05,107 - INFO - 数据库文件已是最新版本: SHA1=fa9aa609259578db6199c700de331e4f32ad721a
+2026-05-09 23:49:05,107 - INFO - 后台检查完成，需要更新: False
+2026-05-09 23:49:50,926 - INFO - 无需更新
+2026-05-10 00:18:36,722 - INFO - 日志文件已配置: C:\Users\25307\Desktop\Alician_dictionary-26_2_18\update_checker.log
+2026-05-10 00:18:36,724 - INFO - 开始后台检查更新...
+2026-05-10 00:18:36,726 - INFO - 本地数据库文件SHA1值: fa9aa609259578db6199c700de331e4f32ad721a
+2026-05-10 00:18:39,436 - INFO - 从https://raw.githubusercontent.com/Meartraep/Alician_dictionary/main/translated.db获取文件内容成功，大小: 720896字节
+2026-05-10 00:18:39,437 - INFO - 数据库文件已是最新版本: SHA1=fa9aa609259578db6199c700de331e4f32ad721a
+2026-05-10 00:18:39,437 - INFO - 后台检查完成，需要更新: False
+2026-05-10 00:30:13,864 - INFO - 日志文件已配置: C:\Users\25307\Desktop\Alician_dictionary-26_2_18\update_checker.log
+2026-05-10 00:30:13,867 - INFO - 开始后台检查更新...
+2026-05-10 00:30:13,870 - INFO - 本地数据库文件SHA1值: fa9aa609259578db6199c700de331e4f32ad721a
+2026-05-10 00:30:19,808 - INFO - 从https://raw.githubusercontent.com/Meartraep/Alician_dictionary/main/translated.db获取文件内容成功，大小: 720896字节
+2026-05-10 00:30:19,809 - INFO - 数据库文件已是最新版本: SHA1=fa9aa609259578db6199c700de331e4f32ad721a
+2026-05-10 00:30:19,809 - INFO - 后台检查完成，需要更新: False
+2026-05-10 01:13:30,772 - INFO - 日志文件已配置: C:\Users\25307\Desktop\Alician_dictionary-26_2_18\update_checker.log
+2026-05-10 01:13:30,774 - INFO - 开始后台检查更新...
+2026-05-10 01:13:30,776 - INFO - 本地数据库文件SHA1值: fa9aa609259578db6199c700de331e4f32ad721a
+2026-05-10 01:13:33,141 - INFO - 从https://raw.githubusercontent.com/Meartraep/Alician_dictionary/main/translated.db获取文件内容成功，大小: 720896字节
+2026-05-10 01:13:33,141 - INFO - 数据库文件已是最新版本: SHA1=fa9aa609259578db6199c700de331e4f32ad721a
+2026-05-10 01:13:33,141 - INFO - 后台检查完成，需要更新: False
+2026-05-10 02:11:04,109 - INFO - 日志文件已配置: C:\Users\25307\Desktop\Alician_dictionary-26_2_18\update_checker.log
+2026-05-10 02:11:04,112 - INFO - 开始后台检查更新...
+2026-05-10 02:11:04,137 - INFO - 本地数据库文件SHA1值: fa9aa609259578db6199c700de331e4f32ad721a
+2026-05-10 02:11:08,949 - INFO - 从https://raw.githubusercontent.com/Meartraep/Alician_dictionary/main/translated.db获取文件内容成功，大小: 720896字节
+2026-05-10 02:11:08,950 - INFO - 数据库文件已是最新版本: SHA1=fa9aa609259578db6199c700de331e4f32ad721a
+2026-05-10 02:11:08,950 - INFO - 后台检查完成，需要更新: False
+2026-05-10 02:18:53,643 - INFO - 日志文件已配置: C:\Users\25307\Desktop\Alician_dictionary-26_2_18\update_checker.log
+2026-05-10 02:18:53,645 - INFO - 开始后台检查更新...
+2026-05-10 02:18:53,664 - INFO - 本地数据库文件SHA1值: fa9aa609259578db6199c700de331e4f32ad721a
+2026-05-10 02:18:54,972 - INFO - 从https://raw.githubusercontent.com/Meartraep/Alician_dictionary/main/translated.db获取文件内容成功，大小: 720896字节
+2026-05-10 02:18:54,973 - INFO - 数据库文件已是最新版本: SHA1=fa9aa609259578db6199c700de331e4f32ad721a
+2026-05-10 02:18:54,973 - INFO - 后台检查完成，需要更新: False
+2026-05-10 02:25:01,399 - INFO - 无需更新
+2026-05-10 02:25:11,694 - INFO - 无需更新
+2026-05-10 02:25:16,056 - INFO - 无需更新
+2026-05-10 02:26:25,736 - INFO - 日志文件已配置: C:\Users\25307\Desktop\Alician_dictionary-26_2_18\update_checker.log
+2026-05-10 02:26:25,738 - INFO - 开始后台检查更新...
+2026-05-10 02:26:25,766 - INFO - 本地数据库文件SHA1值: fa9aa609259578db6199c700de331e4f32ad721a
+2026-05-10 02:26:37,279 - ERROR - 从https://raw.githubusercontent.com/Meartraep/Alician_dictionary/main/translated.db获取文件内容失败: HTTPSConnectionPool(host='raw.githubusercontent.com', port=443): Read timed out.
+2026-05-10 02:26:57,326 - ERROR - 从https://mirror.ghproxy.com/https://raw.githubusercontent.com/Meartraep/Alician_dictionary/main/translated.db获取文件内容失败: HTTPSConnectionPool(host='mirror.ghproxy.com', port=443): Max retries exceeded with url: /https://raw.githubusercontent.com/Meartraep/Alician_dictionary/main/translated.db (Caused by ConnectTimeoutError(<HTTPSConnection(host='mirror.ghproxy.com', port=443) at 0x212f6cfa110>, 'Connection to mirror.ghproxy.com timed out. (connect timeout=10)'))
+2026-05-10 02:26:57,326 - WARNING - 无法获取GitHub文件内容
+2026-05-10 02:26:57,326 - INFO - 方法1失败，尝试方法2
+2026-05-10 02:26:59,827 - INFO - 从https://api.github.com/repos/Meartraep/Alician_dictionary/contents/translated.db获取SHA值成功: 6b142e8d28d89ed7d7c604cd296aa999dd8b1edc
+2026-05-10 02:27:10,395 - ERROR - 从https://raw.githubusercontent.com/Meartraep/Alician_dictionary/main/translated.db获取文件内容失败: HTTPSConnectionPool(host='raw.githubusercontent.com', port=443): Read timed out.
+2026-05-10 02:27:30,417 - ERROR - 从https://mirror.ghproxy.com/https://raw.githubusercontent.com/Meartraep/Alician_dictionary/main/translated.db获取文件内容失败: HTTPSConnectionPool(host='mirror.ghproxy.com', port=443): Max retries exceeded with url: /https://raw.githubusercontent.com/Meartraep/Alician_dictionary/main/translated.db (Caused by ConnectTimeoutError(<HTTPSConnection(host='mirror.ghproxy.com', port=443) at 0x212f79357d0>, 'Connection to mirror.ghproxy.com timed out. (connect timeout=10)'))
+2026-05-10 02:27:30,417 - WARNING - 无法获取GitHub文件内容
+2026-05-10 02:27:30,417 - WARNING - 无法获取文件内容，跳过更新
+2026-05-10 02:27:30,417 - INFO - 后台检查完成，需要更新: False
