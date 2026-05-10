@@ -1,20 +1,33 @@
-> 用户必须使用3.12或更高版本的Python，可选择安装python-Levenshtein外部库
-## 许可协议
-本项目基于 **CC BY-NC 4.0（署名-非商业性使用 4.0 国际协议）** 开源：
-允许：复制、分发、改编、修改
-要求：保留原作者署名
-禁止：任何商业使用
-完整协议：https://creativecommons.org/licenses/by-nc/4.0/ 
-项目中程序的作者是Meartraep，由AI辅助编写。
-数据库的内容来源于网络，由mdt_Witch提供并整理
-## 项目介绍
-本项目是一个爱丽丝语学习和写作的辅助工具，可以帮助你进行爱丽丝语单词的查询和写作上的辅助
-使用SQLite3数据库
-这是一个中文项目，词典是爱丽丝语对中文的
-## 未来展望
-整个项目在未来将进入一种修Bug为主的状态，几乎不会再有任何功能更新。当然，数据库可能还会更新
-## 碎碎念
-有些时候我觉得也不用这么正经的，这是一个学习和练手的项目，从我的心里面来说。这也是即使没有人在乎我也没有停下的缘故，事实上这只是个起点
-上一代的README写的并不好，而且过时了。所以我重写了一遍。我觉得有必要提及mdt，他对于这个项目的贡献是关键性的。
-这个图片算是项目的icon，是使用豆包画的。
+# 项目名称：Alician_dictionary
+这是一个帮助你进行爱丽丝语学习的工具包。<br>
+本项目自2025年5月10日起遵循CC-BY-NC-SA 4.0协议开源<br>
+感谢@mdt_witch大佬研究出的数据库，没有它我无法做出这个。
+# 依赖
+- 推荐3.11版本Python
+- 用户需要使用代码安装以下外部库
+```
+pip install pywebview requests openpyxl python-Levenshtein
+```
+其中，`openpyxl`和尤其是 `python-Levenshtein`是可选的，不装不会导致程序无法启动
+# 运行源代码
+## 将代码拉取到本地
+```
+git clone https://github.com/Meartraep/Alician_dictionary.git
+```
+编不下去了，不用那么麻烦的bro，直接把我main分支下载下来就好了
+## 运行
+要运行程序，请双击打开`toolkit.py`。首次打开会显示欢迎窗口，随后向注册表`HKEY_CURRENT_USER\Software\Meartraep\AlicianDictionary`中写入值`FirstLaunchCompleted=1`,手动删除该值再运行会再次显示欢迎窗口。<br>
+~~欢迎窗口源于一开始我准备做一个功能，让大家拿到程序首次运行成功就邮件通知我，后来因为安全性无法保证（无法解决恶意刷邮件问题），删除了这个功能，只留下这个欢迎入口~~ 以后窗口上会显示协议
+# 功能
+查找爱丽丝语单词、查找关于该单词所在的原歌词上下文<br>
+提供输入框，输入爱丽丝语词句，自动发现单词错误并提供建议、发现使用的低频词汇<br>
+提供爱丽丝语单词词频、泛度统计功能。词频统计是去重的。<br>
+**泛度**指代一个单词在多少首歌曲中出现
+# 协议
+Attribution-NonCommercial-ShareAlike 4.0 International
+# 项目icon
+使用豆包AI基于Alice Schach and the Magic Orchestra官方的爱丽丝·夏赫形象绘制，这张图片限于非商业使用
 <img width="512" height="512" alt="app_icon" src="https://github.com/user-attachments/assets/fa213729-3adf-4656-b091-6a27da952547" />
+# 链接
+[Alice Schach and the Magic Orchestra](https://alice-orchestra.com)<br>
+[hackto(character-designer)](http://villains-hackto.com/)
