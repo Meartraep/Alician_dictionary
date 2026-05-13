@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8" />
@@ -13,6 +13,7 @@
       <div id="tabBar" class="tab-bar" aria-label="主标签栏">
         <button class="tab-item active" type="button" draggable="true" data-app="dictionary">词典工具</button>
         <button class="tab-item" type="button" draggable="true" data-app="writing">写作助手</button>
+        <button class="tab-item" type="button" draggable="true" data-app="dbmanager">数据库管理</button>
         <button class="tab-item" type="button" draggable="false" data-app="settings">设置</button>
       </div>
     </header>
@@ -105,6 +106,43 @@
           </section>
         </section>
 
+        <section id="panel-dbmanager" class="app-panel" data-app-panel="dbmanager">
+          <div class="panel-title">数据库管理</div>
+          <div class="dbmanager-layout">
+            <div class="dbmanager-sidebar card">
+              <div class="panel-subtitle">数据表</div>
+              <div id="dbmTableList" class="table-list"></div>
+            </div>
+            <div class="dbmanager-main">
+              <div class="dbmanager-toolbar card toolbar">
+                <button id="dbmRefreshBtn" type="button">刷新</button>
+                <input id="dbmSearchInput" type="text" placeholder="搜索当前表..." />
+                <button id="dbmSearchBtn" type="button">搜索</button>
+                <button id="dbmShowAllBtn" type="button">显示全部</button>
+                <button id="dbmUpdateWordCountBtn" type="button">更新词频/泛度</button>
+                <button id="dbmClassifyWordsBtn" type="button">更新词性统计</button>
+                <button id="dbmExportDbBtn" type="button">导出数据库</button>
+                <span style="flex:1"></span>
+                <button id="dbmAddBtn" type="button">新增</button>
+                <button id="dbmDeleteBtn" type="button">删除</button>
+                <button id="dbmDiscardBtn" type="button" class="ghost hidden">放弃</button>
+                <button id="dbmCommitBtn" type="button" class="hidden">提交</button>
+              </div>
+              <div class="dbmanager-data card">
+                <div id="dbmDataTable" class="data-table-wrap"></div>
+              </div>
+              <div id="dbmStatus" class="status-line"></div>
+            </div>
+          </div>
+          <div class="dbmanager-global card toolbar">
+            <input id="dbmGlobalSearchInput" type="text" placeholder="全局跨表搜索..." />
+            <button id="dbmGlobalSearchBtn" type="button">全局搜索</button>
+            <input id="dbmReplaceInput" type="text" placeholder="替换为..." />
+            <button id="dbmReplaceBtn" type="button">批量替换</button>
+            <span id="dbmGlobalStatus" style="font-size:12px;color:var(--muted);margin-left:10px"></span>
+          </div>
+        </section>
+
         <section id="panel-settings" class="app-panel" data-app-panel="settings">
           <div class="panel-title">设置</div>
           <div class="settings-page card">
@@ -115,6 +153,27 @@
               </span>
               <input id="autoUpdateToggle" type="checkbox" role="switch" />
             </label>
+            <label class="setting-row">
+              <span>
+                <strong>显示爱丽丝语原字体</strong>
+                <span id="alicFontNote" class="setting-note">仅词典/写作面板中生效</span>
+              </span>
+              <input id="alicFontToggle" type="checkbox" role="switch" />
+            </label>
+            <label class="setting-row">
+              <span>
+                <strong>鼠标悬停切换字体</strong>
+                <span id="alicHoverNote" class="setting-note">悬停时切换为另一种字体</span>
+              </span>
+              <input id="alicHoverToggle" type="checkbox" role="switch" />
+            </label>
+            <div class="setting-row">
+              <span>
+                <strong>悬停触发延迟</strong>
+                <span id="alicHoverDelayLabel" class="setting-note">300 ms</span>
+              </span>
+              <input id="alicHoverDelaySlider" type="range" min="0" max="1000" step="50" value="300" />
+            </div>
           </div>
         </section>
       </div>
@@ -137,6 +196,12 @@
 
   <input id="fileLoader" type="file" accept=".txt,text/plain" hidden />
 
-  <script src="./app.js"></script>
+  <script src="./js/state.js"></script>
+  <script src="./js/utils.js"></script>
+  <script src="./js/tabs.js"></script>
+  <script src="./js/dictionary.js"></script>
+  <script src="./js/writing.js"></script>
+  <script src="./js/dbmanager.js"></script>
+  <script src="./js/main.js"></script>
 </body>
 </html>

@@ -14,6 +14,9 @@ class AppSettings:
             "auto_update": True,
             "known_db_sha1": "",
             "auto_update_status": "",
+            "alic_font": False,
+            "alic_hover_enabled": True,
+            "alic_hover_delay": 300,
         }
         self.settings = self._load()
         self.detect_local_db_change()
@@ -75,6 +78,9 @@ class AppSettings:
         return {
             "auto_update": bool(self.settings.get("auto_update", True)),
             "auto_update_status": str(self.settings.get("auto_update_status") or ""),
+            "alic_font": bool(self.settings.get("alic_font", False)),
+            "alic_hover_enabled": bool(self.settings.get("alic_hover_enabled", True)),
+            "alic_hover_delay": int(self.settings.get("alic_hover_delay", 300)),
         }
 
     def set_auto_update(self, enabled: bool) -> Dict[str, Any]:

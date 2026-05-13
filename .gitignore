@@ -7,6 +7,8 @@
 !*.css
 !*.html
 !*.md
-!*.log
 !*.txt
 !*.json
+!*.jsonl
+!*.sqlite
+!*.ttf

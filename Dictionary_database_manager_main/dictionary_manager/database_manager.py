@@ -400,42 +400,39 @@ class DatabaseManager:
         print(f"开始全局搜索: keyword='{keyword}', 表字段列表={all_fields}")
         
         for table, fields in all_fields:
-            # 获取表的所有字段（包括可能的id字段）
             cursor = self.conn.cursor()
-            cursor.execute(f"PRAGMA table_info({table})")
+            cursor.execute(f'PRAGMA table_info("{table}")')
             all_columns = cursor.fetchall()
             column_names = [col[1] for col in all_columns]
-            
-            # 构建搜索条件，搜索所有字段
+            has_id = 'id' in column_names
+
             where_clause = " OR ".join([f'"{field}" LIKE ?' for field in fields])
-            # 构建字段列表，每个字段用双引号包围
-            quoted_fields = [f'"{field}"' for field in column_names]
-            fields_str = ', '.join(quoted_fields)
-            # 构建完整查询
-            query = f"SELECT {fields_str} FROM \"{table}\" WHERE {where_clause}"
-            
+            if has_id:
+                quoted_fields = [f'"{field}"' for field in column_names]
+                fields_str = ', '.join(quoted_fields)
+                query = f'SELECT {fields_str} FROM "{table}" WHERE {where_clause}'
+                id_col_idx = column_names.index('id')
+            else:
+                quoted_fields = [f'"{field}"' for field in column_names]
+                fields_str = ', '.join(quoted_fields)
+                query = f'SELECT rowid, {fields_str} FROM "{table}" WHERE {where_clause}'
+                id_col_idx = 0
+
             try:
                 cursor = self.conn.cursor()
                 params = [f'%{keyword}%'] * len(fields)
-                print(f"执行搜索: table={table}, query={query}, params={params}")
                 cursor.execute(query, params)
                 rows = cursor.fetchall()
-                print(f"搜索表 {table} 找到 {len(rows)} 行数据")
-                
-                # 处理搜索结果
+
                 for row in rows:
-                    # 检查是否有id字段
-                    row_id = None
-                    if 'id' in column_names:
-                        row_id = row[column_names.index('id')]
-                    else:
-                        # 如果没有id字段，使用行索引作为标识
-                        row_id = rows.index(row)
-                    
+                    row_id = row[id_col_idx]
                     for i, field in enumerate(fields):
                         if field in column_names:
                             field_index = column_names.index(field)
-                            field_value = row[field_index]
+                            if has_id:
+                                field_value = row[field_index]
+                            else:
+                                field_value = row[field_index + 1]
                             if field_value and keyword in str(field_value):
                                 results.append({
                                     'table': table,
@@ -443,7 +440,6 @@ class DatabaseManager:
                                     'field': field,
                                     'value': field_value
                                 })
-                                print(f"  匹配到: table={table}, id={row_id}, field={field}, value='{field_value}'")
             except Error as e:
                 print(f"搜索表 {table} 失败: {e}")
                 continue
@@ -478,42 +474,29 @@ class DatabaseManager:
             print(f"按表分组完成，共 {len(table_groups)} 个表需要处理")
             
             for table, records in table_groups.items():
-                print(f"处理表: {table}, 记录数={len(records)}")
-                
-                # 获取表的所有字段
                 cursor = self.conn.cursor()
-                cursor.execute(f"PRAGMA table_info({table})")
+                cursor.execute(f'PRAGMA table_info("{table}")')
                 all_columns = cursor.fetchall()
                 column_names = [col[1] for col in all_columns]
-                
-                # 检查是否有id字段
                 has_id_field = 'id' in column_names
-                
-                # 按字段分组
+
                 field_groups = {}
                 for record in records:
                     field = record['field']
                     if field not in field_groups:
                         field_groups[field] = []
                     field_groups[field].append(record)
-                
+
                 for field, records in field_groups.items():
-                    print(f"  处理字段: {field}, 记录数={len(records)}")
-                    
-                    # 构建更新语句
-                    if has_id_field:
-                        update_query = f"UPDATE {table} SET \"{field}\" = REPLACE(\"{field}\", ?, ?) WHERE id = ?"
-                        print(f"  SQL: {update_query}")
-                    else:
-                        # 如果没有id字段，使用所有字段作为条件（简单实现）
-                        # 注意：这种方法可能会导致更新多个记录，实际应用中可能需要更复杂的逻辑
-                        print("  警告: 表没有id字段，替换操作可能会影响多个记录")
-                        continue  # 暂时跳过没有id字段的表的替换操作
-                    
                     for record in records:
                         try:
                             cursor = self.conn.cursor()
-                            cursor.execute(update_query, (keyword, replacement, record['id']))
+                            if has_id_field:
+                                update_query = f'UPDATE "{table}" SET "{field}" = REPLACE("{field}", ?, ?) WHERE id = ?'
+                                cursor.execute(update_query, (keyword, replacement, record['id']))
+                            else:
+                                update_query = f'UPDATE "{table}" SET "{field}" = REPLACE("{field}", ?, ?) WHERE rowid = ?'
+                                cursor.execute(update_query, (keyword, replacement, record['id']))
                             
                             if cursor.rowcount > 0:
                                 replaced_count += 1

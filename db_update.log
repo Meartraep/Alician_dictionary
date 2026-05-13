@@ -1525,3 +1525,15 @@
 没有需要更新的统计数据
 2026-05-03 23:25:37,157 - INFO - 
 数据库连接已关闭
+[2026-05-12 23:45:48] 表: dictionary, 提交了 1 条更改
+  id=2: {'words': 'AA', 'explanation': '啊啊', 'count': '2', 'variety': '2', 'class': 'interj.'}
+
+[2026-05-12 23:46:57] 表: dictionary, 提交了 1 条更改
+  id=2: {'words': 'AA', 'explanation': '啊啊', 'count': '2', 'variety': '2', 'class': 'interj.'}
+
+[2026-05-13 00:10:41] 表: Album1, 提交了 1 条更改
+  id=2: {'words': 'Abel', 'explanation': '绽开', 'count': '1', 'variety': '1', 'class': 'v.', 'song': 'wonder world sketch'}
+
+[2026-05-13 00:11:02] 表: Album1, 提交了 1 条更改
+  id=2: {'words': 'Abelu', 'explanation': '绽开', 'count': '1', 'variety': '1', 'class': 'v.', 'song': 'wonder world sketch'}
+

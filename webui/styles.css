@@ -4,6 +4,12 @@
   padding: 0;
 }
 
+@font-face {
+  font-family: "Alician Regular";
+  src: url("../AlicianRegular.ttf") format("truetype");
+  unicode-range: U+0020-007E;
+}
+
 :root {
   --bg: #eef2f7;
   --surface: #ffffff;
@@ -576,6 +582,13 @@ button.small {
   line-height: 1.35;
 }
 
+.setting-row input[type="range"] {
+  width: 140px;
+  flex: 0 0 auto;
+  cursor: pointer;
+  accent-color: var(--active);
+}
+
 .floating-layer {
   position: absolute;
   inset: 0;
@@ -780,6 +793,31 @@ button.small {
   display: none !important;
 }
 
+body.alic-font #panel-dictionary,
+body.alic-font #panel-dictionary input,
+body.alic-font #panel-dictionary textarea,
+body.alic-font #panel-writing,
+body.alic-font #panel-writing input,
+body.alic-font #panel-writing textarea,
+body.alic-font .rich-editor,
+body.alic-font #modalRoot,
+body.alic-font #modalRoot input,
+body.alic-font #modalRoot textarea {
+  font-family: "Alician Regular", "Segoe UI", "Microsoft YaHei", sans-serif;
+}
+
+body.alic-font .no-alic-font {
+  font-family: "Segoe UI", "Microsoft YaHei", sans-serif !important;
+}
+
+.alic-hover-system {
+  font-family: "Segoe UI", "Microsoft YaHei", sans-serif !important;
+}
+
+.alic-hover-alic {
+  font-family: "Alician Regular", "Segoe UI", "Microsoft YaHei", sans-serif !important;
+}
+
 @keyframes popin {
   from {
     opacity: 0;
@@ -789,6 +827,237 @@ button.small {
     opacity: 1;
     transform: translateY(0);
   }
+}
+
+.dbmanager-layout {
+  display: flex;
+  gap: 10px;
+  flex: 1;
+  min-height: 0;
+}
+
+.dbmanager-sidebar {
+  width: 180px;
+  min-width: 140px;
+  display: flex;
+  flex-direction: column;
+  padding: 10px;
+}
+
+.table-list {
+  flex: 1;
+  overflow-y: auto;
+  margin-top: 8px;
+  font-size: 13px;
+}
+
+.table-item {
+  padding: 6px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+  color: var(--text);
+  transition: background 0.15s;
+  word-break: break-all;
+}
+
+.table-item:hover {
+  background: var(--active-soft);
+}
+
+.table-item.active {
+  background: var(--active);
+  color: #fff;
+}
+
+.dbmanager-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.dbmanager-toolbar {
+  flex-shrink: 0;
+}
+
+.dbmanager-data {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+}
+
+.data-table-wrap {
+  width: 100%;
+  height: 100%;
+  overflow: auto;
+}
+
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.data-table th {
+  position: sticky;
+  top: 0;
+  background: #f0f4f9;
+  padding: 8px 10px;
+  text-align: left;
+  font-weight: 600;
+  color: var(--muted);
+  border-bottom: 2px solid var(--border);
+  z-index: 2;
+  white-space: nowrap;
+}
+
+.data-table td {
+  padding: 6px 10px;
+  border-bottom: 1px solid #eef1f5;
+  max-width: 300px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.data-table tr:hover td {
+  background: #f6f9fc;
+}
+
+.data-table tr.selected td {
+  background: var(--active-soft);
+}
+
+.data-table input[type="checkbox"] {
+  cursor: pointer;
+}
+
+.dbmanager-global {
+  flex-shrink: 0;
+  margin-top: 0;
+}
+
+.dialog-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.35);
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.dialog-card {
+  background: var(--surface);
+  border-radius: 12px;
+  box-shadow: 0 12px 40px rgba(0,0,0,0.2);
+  width: 520px;
+  max-width: 94vw;
+  max-height: 85vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.dialog-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--border);
+}
+
+.dialog-head h3 {
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.dialog-body {
+  padding: 16px 18px;
+  overflow-y: auto;
+  flex: 1;
+}
+
+.dialog-field {
+  margin-bottom: 12px;
+}
+
+.dialog-field label {
+  display: block;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+  margin-bottom: 4px;
+}
+
+.dialog-field input,
+.dialog-field textarea {
+  width: 100%;
+  border: 1px solid #c6d0dc;
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 13px;
+}
+
+.dialog-field textarea {
+  min-height: 80px;
+  resize: vertical;
+}
+
+.dialog-actions {
+  padding: 12px 18px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.global-results-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  margin-top: 6px;
+}
+
+.global-results-table th {
+  background: #f0f4f9;
+  padding: 5px 8px;
+  text-align: left;
+  border-bottom: 2px solid var(--border);
+}
+
+.global-results-table td {
+  padding: 4px 8px;
+  border-bottom: 1px solid #eef1f5;
+}
+
+.global-results-table input[type="checkbox"] {
+  cursor: pointer;
+}
+
+.status-line {
+  font-size: 12px;
+  color: var(--muted);
+  padding: 4px 0;
+}
+
+.dbm-inline-edit {
+  width: 100%;
+  border: 1px solid var(--active);
+  border-radius: 4px;
+  padding: 3px 6px;
+  font-size: 13px;
+  background: #fff;
+  resize: vertical;
+}
+
+#dbmCommitBtn {
+  background: #2ecc71;
+}
+
+#dbmCommitBtn:hover {
+  background: #27ae60;
 }
 
 @media (max-width: 980px) {

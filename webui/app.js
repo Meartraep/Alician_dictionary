@@ -1,9 +1,10 @@
 (() => {
-  const APP_IDS = ["dictionary", "writing", "settings"];
-  const DETACHABLE_APP_IDS = ["dictionary", "writing"];
+  const APP_IDS = ["dictionary", "writing", "dbmanager", "settings"];
+  const DETACHABLE_APP_IDS = ["dictionary", "writing", "dbmanager"];
   const APP_TITLES = {
     dictionary: "词典工具",
     writing: "写作助手",
+    dbmanager: "数据库管理",
     settings: "设置",
   };
 
@@ -33,7 +34,16 @@
     apps: {
       dictionary: { detached: false, floatingWindow: null },
       writing: { detached: false, floatingWindow: null },
+      dbmanager: { detached: false, floatingWindow: null },
       settings: { detached: false, floatingWindow: null },
+    },
+    dbmanager: {
+      currentTable: "",
+      tables: [],
+      fields: [],
+      data: [],
+      selectedIds: new Set(),
+      globalResults: [],
     },
     dictionary: {
       currentExamplesPayload: null,
@@ -201,6 +211,11 @@
       "writingDictQuery", "writingDictExact", "writingDictSearchBtn",
       "settingsStrictCase", "settingsUndo", "excludedInput", "excludedAddBtn", "excludedList", "settingsSaveBtn", "settingsCloseBtn",
       "autoUpdateToggle", "autoUpdateStatus",
+      "dbmTableList", "dbmRefreshBtn", "dbmSearchInput", "dbmSearchBtn",
+      "dbmShowAllBtn", "dbmAddBtn", "dbmEditBtn", "dbmDeleteBtn",
+      "dbmDataTable", "dbmStatus", "dbmGlobalSearchInput",
+      "dbmGlobalSearchBtn", "dbmReplaceInput", "dbmReplaceBtn",
+      "dbmGlobalStatus",
       "fileLoader",
     ];
     for (const id of ids) els[id] = document.getElementById(id);
@@ -1369,6 +1384,370 @@
     });
   }
 
+  function renderDbmanagerTableList() {
+    const list = els.dbmTableList;
+    if (!list) return;
+    list.innerHTML = state.dbmanager.tables.map((t) => {
+      const cls = t === state.dbmanager.currentTable ? "table-item active" : "table-item";
+      return `<div class="${cls}" data-table="${escapeHtml(t)}">${escapeHtml(t)}</div>`;
+    }).join("");
+
+    list.querySelectorAll(".table-item").forEach((el) => {
+      el.addEventListener("click", () => {
+        loadDbmanagerTable(el.dataset.table);
+      });
+    });
+  }
+
+  async function loadDbmanagerTable(tableName) {
+    state.dbmanager.currentTable = tableName;
+    state.dbmanager.selectedIds = new Set();
+    renderDbmanagerTableList();
+    try {
+      const ret = await callApi("dbmanager_get_all_data", tableName);
+      if (ret?.ok) {
+        state.dbmanager.fields = ret.fields || [];
+        state.dbmanager.data = ret.data || [];
+      } else {
+        state.dbmanager.fields = [];
+        state.dbmanager.data = [];
+        toast(ret?.message || "加载失败", "warn");
+      }
+    } catch (err) {
+      state.dbmanager.fields = [];
+      state.dbmanager.data = [];
+      toast(`加载数据失败：${err.message}`, "warn");
+    }
+    renderDbmanagerData();
+  }
+
+  function renderDbmanagerData() {
+    const fields = state.dbmanager.fields;
+    const data = state.dbmanager.data;
+    const wrap = els.dbmDataTable;
+    if (!wrap) return;
+
+    if (!fields.length) {
+      wrap.innerHTML = '<div style="padding:20px;color:var(--muted)">请左侧选择数据表</div>';
+      els.dbmStatus.textContent = "";
+      return;
+    }
+
+    let html = '<table class="data-table"><thead><tr>';
+    html += '<th style="width:40px"><input type="checkbox" id="dbmSelectAll" /></th>';
+    for (const f of fields) {
+      html += `<th>${escapeHtml(f)}</th>`;
+    }
+    html += '</tr></thead><tbody>';
+
+    for (const row of data) {
+      const rowId = row.id != null ? String(row.id) : "";
+      const selected = rowId && state.dbmanager.selectedIds.has(rowId);
+      html += `<tr class="${selected ? 'selected' : ''}" data-row-id="${escapeHtml(rowId)}">`;
+      html += `<td><input type="checkbox" ${selected ? 'checked' : ''} /></td>`;
+      for (const f of fields) {
+        html += `<td title="${escapeHtml(String(row[f] ?? ''))}">${escapeHtml(String(row[f] ?? ''))}</td>`;
+      }
+      html += '</tr>';
+    }
+    html += '</tbody></table>';
+    wrap.innerHTML = html;
+    els.dbmStatus.textContent = `共 ${data.length} 条记录`;
+
+    const selectAllCb = wrap.querySelector("#dbmSelectAll");
+    const rowCbs = wrap.querySelectorAll("tbody input[type=checkbox]");
+    if (selectAllCb) {
+      selectAllCb.checked = rowCbs.length > 0 && [...rowCbs].every((cb) => cb.checked);
+      selectAllCb.addEventListener("change", () => {
+        const check = selectAllCb.checked;
+        rowCbs.forEach((cb) => {
+          cb.checked = check;
+          const rid = cb.closest("tr")?.dataset.rowId;
+          if (rid) {
+            if (check) state.dbmanager.selectedIds.add(rid);
+            else state.dbmanager.selectedIds.delete(rid);
+          }
+        });
+        syncDbmanagerRowSelection();
+      });
+    }
+
+    rowCbs.forEach((cb) => {
+      cb.addEventListener("change", () => {
+        const rid = cb.closest("tr")?.dataset.rowId;
+        if (rid) {
+          if (cb.checked) state.dbmanager.selectedIds.add(rid);
+          else state.dbmanager.selectedIds.delete(rid);
+        }
+        syncDbmanagerRowSelection();
+      });
+    });
+  }
+
+  function syncDbmanagerRowSelection() {
+    const rows = els.dbmDataTable?.querySelectorAll("tbody tr");
+    if (!rows) return;
+    rows.forEach((tr) => {
+      const cb = tr.querySelector("input[type=checkbox]");
+      if (cb) tr.classList.toggle("selected", cb.checked);
+    });
+    const selectAllCb = els.dbmDataTable?.querySelector("#dbmSelectAll");
+    const rowCbs = els.dbmDataTable?.querySelectorAll("tbody input[type=checkbox]");
+    if (selectAllCb) {
+      selectAllCb.checked = rowCbs && rowCbs.length > 0 && [...rowCbs].every((c) => c.checked);
+    }
+  }
+
+  function getDbmanagerSelectedIds() {
+    return [...state.dbmanager.selectedIds].map(Number).filter((n) => !isNaN(n));
+  }
+
+  function showDbmanagerDialog(title, fields, values, onSave) {
+    const existing = document.querySelector(".dialog-overlay");
+    if (existing) existing.remove();
+
+    const overlay = document.createElement("div");
+    overlay.className = "dialog-overlay";
+    let fieldsHtml = "";
+    for (const f of fields) {
+      if (f === "id") continue;
+      const label = f;
+      const val = escapeHtml(values[f] || "");
+      const isLong = (values[f] && values[f].length > 40) || f === "explanation" || f === "lyric";
+      const inputHtml = isLong
+        ? `<textarea id="dialog-f-${escapeHtml(f)}" rows="4">${val}</textarea>`
+        : `<input id="dialog-f-${escapeHtml(f)}" type="text" value="${val}" />`;
+      fieldsHtml += `<div class="dialog-field"><label>${escapeHtml(label)}</label>${inputHtml}</div>`;
+    }
+
+    overlay.innerHTML = `
+      <div class="dialog-card">
+        <div class="dialog-head"><h3>${escapeHtml(title)}</h3><button class="close-btn dialog-close-btn">&#x2715;</button></div>
+        <div class="dialog-body">${fieldsHtml}</div>
+        <div class="dialog-actions">
+          <button class="ghost dialog-cancel-btn">取消</button>
+          <button class="dialog-save-btn">保存</button>
+        </div>
+      </div>`;
+    document.body.appendChild(overlay);
+
+    const close = () => overlay.remove();
+    overlay.querySelector(".dialog-close-btn").addEventListener("click", close);
+    overlay.querySelector(".dialog-cancel-btn").addEventListener("click", close);
+    overlay.addEventListener("click", (e) => { if (e.target === overlay) close(); });
+
+    overlay.querySelector(".dialog-save-btn").addEventListener("click", () => {
+      const result = {};
+      for (const f of fields) {
+        if (f === "id") continue;
+        const el = overlay.querySelector(`#dialog-f-${CSS.escape(f)}`);
+        result[f] = el ? el.value : "";
+      }
+      onSave(result, close);
+    });
+
+    overlay.addEventListener("keydown", (e) => {
+      if (e.key === "Escape") close();
+    });
+  }
+
+  async function dbmanagerRefresh() {
+    if (!state.dbmanager.currentTable) {
+      toast("请先选择数据表", "warn");
+      return;
+    }
+    await loadDbmanagerTable(state.dbmanager.currentTable);
+    toast("已刷新", "info");
+  }
+
+  async function dbmanagerAddRecord() {
+    const table = state.dbmanager.currentTable;
+    if (!table) { toast("请先选择数据表", "warn"); return; }
+    const fields = state.dbmanager.fields;
+    showDbmanagerDialog("新增记录 - " + table, fields, {}, async (values, close) => {
+      try {
+        const ret = await callApi("dbmanager_add_record", table, values);
+        toast(ret?.message || "", ret?.ok ? "info" : "warn");
+        if (ret?.ok) { close(); await loadDbmanagerTable(table); }
+      } catch (err) { toast(`新增失败：${err.message}`, "warn"); }
+    });
+  }
+
+  async function dbmanagerEditRecord() {
+    const ids = getDbmanagerSelectedIds();
+    if (ids.length !== 1) { toast("请选择一条记录", "warn"); return; }
+    const table = state.dbmanager.currentTable;
+    const record = state.dbmanager.data.find((r) => String(r.id) === String(ids[0]));
+    if (!record) { toast("未找到该记录", "warn"); return; }
+    const fields = state.dbmanager.fields;
+    showDbmanagerDialog("修改记录 - " + table, fields, record, async (values, close) => {
+      try {
+        const ret = await callApi("dbmanager_update_record", table, ids[0], values);
+        toast(ret?.message || "", ret?.ok ? "info" : "warn");
+        if (ret?.ok) { close(); await loadDbmanagerTable(table); }
+      } catch (err) { toast(`修改失败：${err.message}`, "warn"); }
+    });
+  }
+
+  async function dbmanagerDeleteRecords() {
+    const ids = getDbmanagerSelectedIds();
+    if (!ids.length) { toast("请选择要删除的记录", "warn"); return; }
+    if (!confirm(`确认删除 ${ids.length} 条记录吗？此操作不可撤销。`)) return;
+    const table = state.dbmanager.currentTable;
+    try {
+      const ret = await callApi("dbmanager_delete_records", table, ids);
+      toast(ret?.message || "", ret?.ok ? "info" : "warn");
+      if (ret?.ok) await loadDbmanagerTable(table);
+    } catch (err) { toast(`删除失败：${err.message}`, "warn"); }
+  }
+
+  async function dbmanagerSearch() {
+    const table = state.dbmanager.currentTable;
+    if (!table) { toast("请先选择数据表", "warn"); return; }
+    const kw = (els.dbmSearchInput?.value || "").trim();
+    try {
+      const ret = await callApi("dbmanager_search", table, kw);
+      if (ret?.ok) {
+        state.dbmanager.data = ret.data || [];
+        state.dbmanager.selectedIds = new Set();
+        renderDbmanagerData();
+        els.dbmStatus.textContent = kw ? `搜索 "${kw}" — ${ret.data.length} 条结果` : `共 ${ret.data.length} 条记录`;
+      } else {
+        toast(ret?.message || "搜索失败", "warn");
+      }
+    } catch (err) { toast(`搜索失败：${err.message}`, "warn"); }
+  }
+
+  async function dbmanagerShowAll() {
+    const table = state.dbmanager.currentTable;
+    if (!table) return;
+    els.dbmSearchInput.value = "";
+    await loadDbmanagerTable(table);
+  }
+
+  function renderGlobalResults() {
+    const results = state.dbmanager.globalResults;
+    if (!results || !results.length) {
+      els.dbmGlobalStatus.textContent = "无结果";
+      return;
+    }
+    els.dbmGlobalStatus.textContent = `找到 ${results.length} 条结果`;
+
+    let html = '<table class="global-results-table"><thead><tr>';
+    html += '<th><input type="checkbox" id="dbmGlobalSelectAll" /></th>';
+    html += '<th>表</th><th>ID</th><th>字段</th><th>值</th>';
+    html += '</tr></thead><tbody>';
+    for (let i = 0; i < results.length; i++) {
+      const r = results[i];
+      html += `<tr data-gidx="${i}">`;
+      html += `<td><input type="checkbox" /></td>`;
+      html += `<td>${escapeHtml(r.table || "")}</td>`;
+      html += `<td>${escapeHtml(String(r.id ?? ""))}</td>`;
+      html += `<td>${escapeHtml(r.field || "")}</td>`;
+      html += `<td>${escapeHtml(String(r.value ?? ""))}</td>`;
+      html += '</tr>';
+    }
+    html += '</tbody></table>';
+
+    let container = document.getElementById("dbmGlobalResults");
+    if (!container) {
+      container = document.createElement("div");
+      container.id = "dbmGlobalResults";
+      container.className = "global-results card";
+      container.style.cssText = "max-height:220px;overflow:auto;margin-top:8px;padding:8px";
+      els.dbmGlobalStatus.parentElement.after(container);
+    }
+    container.innerHTML = html;
+
+    const selectAllCb = container.querySelector("#dbmGlobalSelectAll");
+    const rowCbs = container.querySelectorAll("tbody input[type=checkbox]");
+    if (selectAllCb) {
+      selectAllCb.addEventListener("change", () => {
+        rowCbs.forEach((cb, i) => { cb.checked = selectAllCb.checked; });
+      });
+    }
+  }
+
+  async function dbmanagerGlobalSearch() {
+    const kw = (els.dbmGlobalSearchInput?.value || "").trim();
+    if (!kw) { toast("请输入搜索关键词", "warn"); return; }
+    try {
+      const ret = await callApi("dbmanager_global_search", kw);
+      if (ret?.ok) {
+        state.dbmanager.globalResults = ret.results || [];
+        renderGlobalResults();
+      }
+    } catch (err) { toast(`全局搜索失败：${err.message}`, "warn"); }
+  }
+
+  async function dbmanagerGlobalReplace() {
+    const kw = (els.dbmGlobalSearchInput?.value || "").trim();
+    const rep = (els.dbmReplaceInput?.value || "").trim();
+    if (!kw) { toast("请输入查找关键词", "warn"); return; }
+    if (!rep) { toast("请输入替换内容", "warn"); return; }
+
+    const container = document.getElementById("dbmGlobalResults");
+    const rowCbs = container?.querySelectorAll("tbody input[type=checkbox]");
+    if (!rowCbs || !rowCbs.length) { toast("请先执行全局搜索", "warn"); return; }
+
+    const matchRecords = [];
+    rowCbs.forEach((cb) => {
+      if (cb.checked) {
+        const tr = cb.closest("tr");
+        const idx = parseInt(tr?.dataset.gidx);
+        if (!isNaN(idx) && state.dbmanager.globalResults[idx]) {
+          matchRecords.push(state.dbmanager.globalResults[idx]);
+        }
+      }
+    });
+
+    if (!matchRecords.length) { toast("请勾选要替换的记录", "warn"); return; }
+    if (!confirm(`确认将 ${matchRecords.length} 处 "${kw}" 替换为 "${rep}" 吗？此操作不可撤销。`)) return;
+
+    try {
+      const ret = await callApi("dbmanager_global_replace", kw, rep, matchRecords);
+      toast(ret?.message || `已替换 ${ret?.replaced_count || 0} 处`, ret?.ok ? "info" : "warn");
+      if (ret?.ok) {
+        await dbmanagerGlobalSearch();
+        if (state.dbmanager.currentTable) await loadDbmanagerTable(state.dbmanager.currentTable);
+      }
+    } catch (err) { toast(`替换失败：${err.message}`, "warn"); }
+  }
+
+  async function dbmanagerLoadTables() {
+    try {
+      state.dbmanager.tables = await callApi("dbmanager_get_tables");
+      if (state.dbmanager.tables.length && !state.dbmanager.currentTable) {
+        state.dbmanager.currentTable = state.dbmanager.tables[0];
+      }
+      renderDbmanagerTableList();
+      if (state.dbmanager.currentTable) {
+        await loadDbmanagerTable(state.dbmanager.currentTable);
+      }
+    } catch (err) {
+      toast(`加载表列表失败：${err.message}`, "warn");
+    }
+  }
+
+  function bindDbmanagerEvents() {
+    if (!els.dbmRefreshBtn) return;
+    els.dbmRefreshBtn.addEventListener("click", dbmanagerRefresh);
+    els.dbmSearchBtn.addEventListener("click", dbmanagerSearch);
+    els.dbmShowAllBtn.addEventListener("click", dbmanagerShowAll);
+    els.dbmAddBtn.addEventListener("click", dbmanagerAddRecord);
+    els.dbmEditBtn.addEventListener("click", dbmanagerEditRecord);
+    els.dbmDeleteBtn.addEventListener("click", dbmanagerDeleteRecords);
+    els.dbmGlobalSearchBtn.addEventListener("click", dbmanagerGlobalSearch);
+    els.dbmReplaceBtn.addEventListener("click", dbmanagerGlobalReplace);
+
+    els.dbmSearchInput.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") dbmanagerSearch();
+    });
+    els.dbmGlobalSearchInput.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") dbmanagerGlobalSearch();
+    });
+  }
+
   async function bootstrap() {
     try {
       const ret = await callApi("bootstrap");
@@ -1390,6 +1769,7 @@
         await runDictionarySearch(ret.startup_query, ret.startup_exact);
       }
       await runWritingCheck(true);
+      dbmanagerLoadTables();
     } catch (err) {
       toast(`初始化失败：${err.message}`, "warn", 3600);
     }
@@ -1418,6 +1798,7 @@
     bindDictionaryEvents();
     bindWritingEvents();
     bindAppSettingsEvents();
+    bindDbmanagerEvents();
     renderDockPanels();
     updateTabVisualState();
     bootstrap();
