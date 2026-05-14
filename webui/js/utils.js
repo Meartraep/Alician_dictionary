@@ -104,8 +104,26 @@ function _alicHoverClear() {
 
 function _alicHoverMove(e) {
   if (!state.settings.alicHoverEnabled) { _alicHoverClear(); return; }
-  var el = document.elementFromPoint(e.clientX, e.clientY);
-  if (!el || el.tagName === "BUTTON" || el.tagName === "INPUT" || el.tagName === "TEXTAREA") {
+
+  var range = null;
+  if (document.caretRangeFromPoint) {
+    range = document.caretRangeFromPoint(e.clientX, e.clientY);
+  } else if (document.caretPositionFromPoint) {
+    var cp = document.caretPositionFromPoint(e.clientX, e.clientY);
+    if (cp) { range = document.createRange(); range.setStart(cp.offsetNode, cp.offset); range.collapse(true); }
+  }
+
+  var el = null;
+  if (range) {
+    el = range.startContainer.nodeType === Node.TEXT_NODE
+      ? range.startContainer.parentElement
+      : range.startContainer;
+  }
+  if (!el) el = document.elementFromPoint(e.clientX, e.clientY);
+  if (!el) { _alicHoverClear(); return; }
+
+  var tn = el.tagName;
+  if (tn === "BUTTON" || tn === "INPUT" || tn === "TEXTAREA" || tn === "SELECT") {
     _alicHoverClear();
     return;
   }
@@ -113,6 +131,7 @@ function _alicHoverMove(e) {
     _alicHoverClear();
     return;
   }
+
   if (el === _alicHoverEl) return;
   _alicHoverClear();
   _alicHoverEl = el;

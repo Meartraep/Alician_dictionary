@@ -2,7 +2,7 @@
   "auto_update": false,
   "known_db_sha1": "fa9aa609259578db6199c700de331e4f32ad721a",
   "auto_update_status": "自动更新关闭。",
-  "alic_font": true,
+  "alic_font": false,
   "alic_hover_enabled": true,
   "alic_hover_delay": 0
 }
