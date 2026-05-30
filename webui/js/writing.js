@@ -222,17 +222,21 @@ function applyWritingSettings(settings) {
 }
 
 function applyAppSettings(settings) {
-  state.settings.autoUpdate = Boolean(settings?.auto_update);
-  state.settings.status = String(settings?.auto_update_status || "");
   state.settings.alicFont = Boolean(settings?.alic_font);
   state.settings.alicHoverEnabled = settings?.alic_hover_enabled != null ? Boolean(settings.alic_hover_enabled) : true;
   state.settings.alicHoverDelay = settings?.alic_hover_delay != null ? Number(settings.alic_hover_delay) || 300 : 300;
-  if (els.autoUpdateToggle) els.autoUpdateToggle.checked = state.settings.autoUpdate;
-  if (els.autoUpdateStatus) els.autoUpdateStatus.textContent = state.settings.status;
+  state.settings.dataDir = String(settings?.data_dir || "");
   if (els.alicFontToggle) els.alicFontToggle.checked = state.settings.alicFont;
   if (els.alicHoverToggle) els.alicHoverToggle.checked = state.settings.alicHoverEnabled;
   if (els.alicHoverDelaySlider) els.alicHoverDelaySlider.value = state.settings.alicHoverDelay;
   if (els.alicHoverDelayLabel) els.alicHoverDelayLabel.textContent = state.settings.alicHoverDelay + " ms";
+  if (els.dataDirInput) els.dataDirInput.value = state.settings.dataDir;
+  if (els.dataDirNote) els.dataDirNote.textContent = state.settings.dataDir ? "自定义数据目录（更改后需重启生效）" : "程序运行时数据的存放位置";
+  if (els.updateCheckStatus) els.updateCheckStatus.textContent = String(settings?.update_check_status || "就绪");
+  if (els.forceDownloadBtn) {
+    var showBtn = String(settings?.update_check_status || "") === "云端版本未变化，无需下载";
+    els.forceDownloadBtn.classList.toggle("hidden", !showBtn);
+  }
   document.body.classList.toggle("alic-font", state.settings.alicFont);
 }
 
@@ -436,22 +440,28 @@ function bindWritingEvents() {
 }
 
 function bindAppSettingsEvents() {
-  if (!els.autoUpdateToggle) return;
-  els.autoUpdateToggle.addEventListener("change", async function () {
-    var n = Boolean(els.autoUpdateToggle.checked);
+  els.checkUpdateBtn.addEventListener("click", async function () {
+    els.checkUpdateBtn.disabled = true;
+    els.checkUpdateBtn.textContent = "检查中...";
+    els.updateCheckStatus.textContent = "正在检查更新...";
+    els.forceDownloadBtn.classList.add("hidden");
     try {
-      var ret = await callApi("app_save_settings", { auto_update: n });
-      applyAppSettings(ret?.settings || { auto_update: n });
-      toast(ret?.message || "设置已保存。", ret?.ok ? "info" : "warn");
+      var ret = await callApi("app_check_for_update");
+      toast(ret?.message || "操作完成", ret?.ok ? "info" : "warn", 5000);
+      var fresh = await callApi("app_get_settings");
+      applyAppSettings(fresh);
     } catch (err) {
-      els.autoUpdateToggle.checked = state.settings.autoUpdate;
-      toast("保存设置失败：" + err.message, "warn", 3200);
+      toast("检查失败：" + err.message, "warn", 5000);
+      if (els.updateCheckStatus) els.updateCheckStatus.textContent = "就绪";
+    } finally {
+      els.checkUpdateBtn.disabled = false;
+      els.checkUpdateBtn.textContent = "检查更新";
     }
   });
   els.alicFontToggle.addEventListener("change", async function () {
     var n = Boolean(els.alicFontToggle.checked);
     try {
-      var ret = await callApi("app_save_settings", { auto_update: state.settings.autoUpdate, alic_font: n });
+      var ret = await callApi("app_save_settings", { alic_font: n });
       applyAppSettings(ret?.settings || { alic_font: n });
       toast("字体设置已保存。", "info");
     } catch (err) {
@@ -462,7 +472,7 @@ function bindAppSettingsEvents() {
   els.alicHoverToggle.addEventListener("change", async function () {
     var n = Boolean(els.alicHoverToggle.checked);
     try {
-      var ret = await callApi("app_save_settings", { auto_update: state.settings.autoUpdate, alic_hover_enabled: n });
+      var ret = await callApi("app_save_settings", { alic_hover_enabled: n });
       applyAppSettings(ret?.settings || { alic_hover_enabled: n });
     } catch (err) {
       els.alicHoverToggle.checked = state.settings.alicHoverEnabled;
@@ -477,11 +487,78 @@ function bindAppSettingsEvents() {
   els.alicHoverDelaySlider.addEventListener("change", async function () {
     var v = Number(els.alicHoverDelaySlider.value) || 0;
     try {
-      var ret = await callApi("app_save_settings", { auto_update: state.settings.autoUpdate, alic_hover_delay: v });
+      var ret = await callApi("app_save_settings", { alic_hover_delay: v });
       applyAppSettings(ret?.settings || { alic_hover_delay: v });
     } catch (err) {
       els.alicHoverDelaySlider.value = state.settings.alicHoverDelay;
       toast("保存设置失败：" + err.message, "warn", 3200);
+    }
+  });
+
+  els.dataDirBrowseBtn.addEventListener("click", async function () {
+    els.dataDirBrowseBtn.disabled = true;
+    try {
+      var ret = await callApi("app_select_data_dir");
+      if (ret?.ok) {
+        els.dataDirInput.value = ret.path;
+        state.settings.dataDir = ret.path;
+        if (els.dataDirNote) els.dataDirNote.textContent = "已设置，文件已自动迁移";
+        toast(ret.message, "info", 4000);
+      } else if (ret?.message) {
+        toast(ret.message, "info");
+      }
+    } catch (err) {
+      toast("选择目录失败：" + err.message, "warn", 3200);
+    } finally {
+      els.dataDirBrowseBtn.disabled = false;
+    }
+  });
+
+  els.dataDirOpenBtn.addEventListener("click", async function () {
+    els.dataDirOpenBtn.disabled = true;
+    try {
+      var ret = await callApi("app_open_data_dir");
+      if (ret?.message) toast(ret.message, ret?.ok ? "info" : "warn");
+    } catch (err) {
+      toast("打开失败：" + err.message, "warn", 3200);
+    } finally {
+      els.dataDirOpenBtn.disabled = false;
+    }
+  });
+
+  setInterval(async function () {
+    try {
+      var ret = await callApi("app_get_settings");
+      if (els.updateCheckStatus) {
+        els.updateCheckStatus.textContent = String(ret?.update_check_status || "就绪");
+      }
+      if (els.forceDownloadBtn) {
+        var showBtn = String(ret?.update_check_status || "") === "云端版本未变化，无需下载";
+        els.forceDownloadBtn.classList.toggle("hidden", !showBtn);
+      }
+    } catch (_) {}
+  }, 3000);
+
+  els.forceDownloadBtn.addEventListener("click", async function () {
+    els.forceDownloadBtn.disabled = true;
+    els.forceDownloadBtn.textContent = "下载中...";
+    els.updateCheckStatus.textContent = "正在下载...";
+    try {
+      var ret = await callApi("app_force_download_update");
+      toast(ret?.message || "操作完成", ret?.ok ? "info" : "warn", 5000);
+      if (els.updateCheckStatus) {
+        var fresh = await callApi("app_get_settings");
+        els.updateCheckStatus.textContent = String(fresh?.update_check_status || "就绪");
+        var showBtn = String(fresh?.update_check_status || "") === "云端版本未变化，无需下载";
+        els.forceDownloadBtn.classList.toggle("hidden", !showBtn);
+      }
+    } catch (err) {
+      toast("操作失败：" + err.message, "warn", 5000);
+      if (els.updateCheckStatus) els.updateCheckStatus.textContent = "就绪";
+      els.forceDownloadBtn.classList.add("hidden");
+    } finally {
+      els.forceDownloadBtn.disabled = false;
+      els.forceDownloadBtn.textContent = "仍然下载";
     }
   });
 }

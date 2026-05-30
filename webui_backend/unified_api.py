@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import datetime
+import os
 import sys
 import threading
 import queue
@@ -22,17 +23,18 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 VALID_TABS = {"dictionary", "writing", "dbmanager"}
 DETACHED_TITLES = {"dictionary": "词典工具", "writing": "写作助手", "dbmanager": "数据库管理"}
 DETACHED_WIDTHS = {"dictionary": 980, "writing": 1040, "dbmanager": 1100}
-LOG_PATH = PROJECT_ROOT / "db_update.log"
 
 
 class UnifiedAPI:
     def __init__(
         self, initial_tab: str, startup_query: Optional[str], startup_exact: bool,
         update_checker: Any = None, app_settings: Any = None,
+        data_root: Any = None,
     ) -> None:
         self._lock = threading.RLock()
         self.update_checker = update_checker
         self.app_settings = app_settings
+        self.data_root = Path(data_root) if data_root is not None else PROJECT_ROOT
         self.initial_tab = initial_tab if initial_tab in VALID_TABS else "dictionary"
         self.startup_query = (startup_query or "").strip()
         self.startup_exact = bool(startup_exact)
@@ -51,7 +53,7 @@ class UnifiedAPI:
         try:
             self.dictionary_service = DictionaryService()
             self.writing_service = WritingAssistantService()
-            db_path = str(PROJECT_ROOT / "translated.db")
+            db_path = str(self.data_root / "translated.db")
             self.dbmanager_service = DatabaseManagerService(db_path)
         except Exception as exc:
             self._worker_failed = exc
@@ -106,7 +108,7 @@ class UnifiedAPI:
         except Exception:
             dictionary_history = []
         app_settings = self.app_settings.get_public_settings() if self.app_settings is not None else {
-            "auto_update": True, "auto_update_status": ""}
+            "auto_update": True, "auto_update_status": "", "data_dir": ""}
         return {
             "initial_tab": self.initial_tab, "startup_query": self.startup_query,
             "startup_exact": self.startup_exact, "dictionary_history": dictionary_history,
@@ -189,26 +191,89 @@ class UnifiedAPI:
 
     def app_get_settings(self) -> Dict[str, Any]:
         if self.app_settings is None:
-            return {"auto_update": True, "auto_update_status": "", "alic_font": False, "alic_hover_enabled": True, "alic_hover_delay": 300}
+            return {"auto_update": True, "auto_update_status": "", "alic_font": False, "alic_hover_enabled": True, "alic_hover_delay": 300, "update_check_status": "就绪", "data_dir": ""}
         return self.app_settings.get_public_settings()
 
     def app_save_settings(self, settings: Dict[str, Any]) -> Dict[str, Any]:
         if self.app_settings is None:
             return {"ok": False, "message": "设置管理器不可用。", "settings": self.app_get_settings()}
         s = settings or {}
-        public = self.app_settings.set_auto_update(bool(s.get("auto_update", True)))
+        if "auto_update" in s:
+            self.app_settings.settings["auto_update"] = bool(s["auto_update"])
         if "alic_font" in s:
             self.app_settings.settings["alic_font"] = bool(s["alic_font"])
-            public["alic_font"] = bool(s["alic_font"])
         if "alic_hover_enabled" in s:
             self.app_settings.settings["alic_hover_enabled"] = bool(s["alic_hover_enabled"])
-            public["alic_hover_enabled"] = bool(s["alic_hover_enabled"])
         if "alic_hover_delay" in s:
             delay = max(0, min(1000, int(s["alic_hover_delay"])))
             self.app_settings.settings["alic_hover_delay"] = delay
-            public["alic_hover_delay"] = delay
+        if "data_dir" in s:
+            self.app_settings.settings["data_dir"] = str(s["data_dir"] or "").strip()
         self.app_settings.save()
+        public = self.app_settings.get_public_settings()
         return {"ok": True, "message": "设置已保存。", "settings": public}
+
+    def app_select_data_dir(self) -> Dict[str, Any]:
+        root = tk.Tk()
+        root.withdraw()
+        try:
+            root.attributes("-topmost", True)
+        except Exception:
+            pass
+        try:
+            path = filedialog.askdirectory(title="选择数据存储目录")
+        finally:
+            root.destroy()
+        if not path:
+            return {"ok": False, "message": "用户取消选择。"}
+        if self.app_settings is not None:
+            old_root = self.app_settings.last_data_root()
+            self.app_settings.settings["data_dir"] = str(path)
+            new_root = self.app_settings.resolve_data_root(self.data_root)
+            if old_root.resolve() != new_root.resolve():
+                self._migrate_data_files(old_root, new_root)
+            self.app_settings.settings["_last_data_root"] = str(new_root.resolve())
+            self.app_settings.save()
+        return {"ok": True, "path": str(path), "message": "数据目录已设置，文件已自动迁移。"}
+
+    def _migrate_data_files(self, old_root, new_root):
+        if old_root is None or new_root is None:
+            return
+        old_p = Path(old_root)
+        new_p = Path(new_root)
+        if old_p == new_p or not old_p.is_dir():
+            return
+        import shutil
+
+        new_p.mkdir(parents=True, exist_ok=True)
+        for name in ("translated.db", "app_settings.json", "word_checker_config.json",
+                     "search_history.json", "db_update.log", "update_checker.log"):
+            src = old_p / name
+            if src.is_file():
+                try:
+                    shutil.copy2(str(src), str(new_p / name))
+                except (PermissionError, OSError):
+                    pass
+
+    def app_open_data_dir(self) -> Dict[str, Any]:
+        resolved = str(self.data_root)
+        if not os.path.isdir(resolved):
+            return {"ok": False, "message": "数据目录不存在。"}
+        try:
+            os.startfile(resolved)
+            return {"ok": True, "message": "已打开文件资源管理器。"}
+        except Exception as exc:
+            return {"ok": False, "message": f"打开失败: {exc}"}
+
+    def app_force_download_update(self) -> Dict[str, Any]:
+        if self.update_checker is None:
+            return {"ok": False, "message": "更新检查器不可用"}
+        return self.update_checker.force_download_and_diff()
+
+    def app_check_for_update(self) -> Dict[str, Any]:
+        if self.update_checker is None:
+            return {"ok": False, "message": "更新检查器不可用"}
+        return self.update_checker.manual_check_for_update()
 
     def _writing_export_text_impl(self, content: str,
                                   suggested_name: str = "writing_assistant.txt") -> Dict[str, Any]:
@@ -277,7 +342,7 @@ class UnifiedAPI:
                     vals = edit.get("values", {})
                     lines.append(f"  id={rid}: {vals}")
                 lines.append("")
-                with open(LOG_PATH, "a", encoding="utf-8") as f:
+                with open(self.data_root / "db_update.log", "a", encoding="utf-8") as f:
                     f.write("\n".join(lines) + "\n")
             except Exception:
                 pass
@@ -335,13 +400,18 @@ class UnifiedAPI:
         import subprocess
 
         exporter_path = PROJECT_ROOT / "db_exporter.py"
-        if not exporter_path.exists():
+        if not getattr(sys, 'frozen', False) and not exporter_path.exists():
             return {"ok": False, "message": "导出工具 db_exporter.py 不存在。"}
         try:
-            subprocess.Popen(
-                [str(sys.executable), str(exporter_path)],
-                cwd=str(PROJECT_ROOT),
-            )
+            if getattr(sys, 'frozen', False):
+                subprocess.Popen(
+                    [str(sys.executable), '--db-exporter'],
+                )
+            else:
+                subprocess.Popen(
+                    [str(sys.executable), str(exporter_path)],
+                    cwd=str(PROJECT_ROOT),
+                )
             return {"ok": True, "message": "导出工具已启动。"}
         except Exception as exc:
             return {"ok": False, "message": f"启动导出工具失败: {exc}"}
@@ -360,8 +430,4 @@ class UnifiedAPI:
                 self._tasks.put(None)
                 self._worker_thread.join(timeout=8)
         finally:
-            if self.update_checker is not None:
-                try:
-                    self.update_checker.perform_update(None)
-                except Exception:
-                    pass
+            pass

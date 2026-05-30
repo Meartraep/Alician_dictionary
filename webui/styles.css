@@ -589,6 +589,11 @@ button.small {
   accent-color: var(--active);
 }
 
+.data-dir-row {
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
 .floating-layer {
   position: absolute;
   inset: 0;

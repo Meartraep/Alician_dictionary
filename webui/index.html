@@ -146,13 +146,16 @@
         <section id="panel-settings" class="app-panel" data-app-panel="settings">
           <div class="panel-title">设置</div>
           <div class="settings-page card">
-            <label class="setting-row">
+            <div class="setting-row">
               <span>
-                <strong>自动更新</strong>
-                <span id="autoUpdateStatus" class="setting-note"></span>
+                <strong>数据库更新</strong>
+                <span id="updateCheckStatus" class="setting-note">就绪</span>
               </span>
-              <input id="autoUpdateToggle" type="checkbox" role="switch" />
-            </label>
+              <span style="display:flex;align-items:center;gap:6px">
+                <button id="checkUpdateBtn" type="button">检查更新</button>
+                <button id="forceDownloadBtn" type="button" class="ghost small hidden">仍然下载</button>
+              </span>
+            </div>
             <label class="setting-row">
               <span>
                 <strong>显示爱丽丝语原字体</strong>
@@ -173,6 +176,17 @@
                 <span id="alicHoverDelayLabel" class="setting-note">300 ms</span>
               </span>
               <input id="alicHoverDelaySlider" type="range" min="0" max="1000" step="50" value="300" />
+            </div>
+            <div class="setting-row data-dir-row">
+              <span>
+                <strong>数据存储目录</strong>
+                <span id="dataDirNote" class="setting-note">程序运行时数据的存放位置</span>
+              </span>
+              <span style="display:flex;align-items:center;gap:6px;flex:0 0 auto;max-width:50%">
+                <input id="dataDirInput" type="text" readonly placeholder="程序所在目录" style="flex:1;font-size:12px;min-width:140px" />
+                <button id="dataDirBrowseBtn" type="button" class="ghost small">浏览</button>
+                <button id="dataDirOpenBtn" type="button" class="ghost small">打开</button>
+              </span>
             </div>
           </div>
         </section>

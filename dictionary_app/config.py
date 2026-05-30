@@ -7,12 +7,18 @@ import sys
 import os
 
 
+def _get_default_db_path():
+    if getattr(sys, 'frozen', False):
+        return os.path.join(os.path.dirname(sys.executable), 'translated.db')
+    return os.path.abspath(os.path.join(os.path.dirname(__file__), "../translated.db"))
+
+
 class Config:
     APP_TITLE = "爱丽丝语词典"
     INITIAL_SIZE = "1000x600"
     MIN_SIZE = "800x500"
     # 使用相对于当前文件的绝对路径，确保无论从哪里运行都能找到数据库文件
-    DB_NAME = os.path.abspath(os.path.join(os.path.dirname(__file__), "../translated.db"))  # 数据库文件名，相对于当前文件
+    DB_NAME = _get_default_db_path()  # 数据库文件名，相对于当前文件
     REQUIRED_TABLES = {"dictionary": ["words", "explanation", "class"], "songs": ["title", "lyric", "Album"], "phrase": ["PHRASE", "explanation"]}
     
     if sys.platform == 'win32':

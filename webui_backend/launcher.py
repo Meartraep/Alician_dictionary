@@ -14,8 +14,9 @@ def launch_unified_webui(
     startup_exact: bool = False,
     update_checker: Any = None,
     app_settings: Any = None,
+    data_root: Any = None,
 ) -> None:
-    api = UnifiedAPI(initial_tab, startup_query, startup_exact, update_checker, app_settings)
+    api = UnifiedAPI(initial_tab, startup_query, startup_exact, update_checker, app_settings, data_root)
     index_path = PROJECT_ROOT / "webui" / "index.html"
     if not index_path.exists():
         raise FileNotFoundError(f"Web UI entry file not found: {index_path}")
@@ -32,10 +33,11 @@ def launch_unified_webui(
     )
     api.set_main_window(main_window)
 
+    storage_path = str(data_root / ".webview_profile") if data_root else str(PROJECT_ROOT / ".webview_profile")
     try:
         webview.start(
             private_mode=False,
-            storage_path=str(PROJECT_ROOT / ".webview_profile"),
+            storage_path=storage_path,
         )
     finally:
         api.shutdown()

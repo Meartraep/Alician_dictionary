@@ -1,8 +1,12 @@
 {
   "auto_update": false,
-  "known_db_sha1": "fa9aa609259578db6199c700de331e4f32ad721a",
+  "known_db_sha1": "c060220587e43a90b316de3be0577c1957656edf",
   "auto_update_status": "自动更新关闭。",
+  "remote_db_sha1": "a120380487e40929a2f41ba8eed6647138045195",
   "alic_font": false,
   "alic_hover_enabled": true,
-  "alic_hover_delay": 0
+  "alic_hover_delay": 0,
+  "update_check_status": "正在强制下载云端数据库...",
+  "data_dir": "D:/files",
+  "_last_data_root": "D:/files"
 }

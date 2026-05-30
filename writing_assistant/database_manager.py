@@ -4,6 +4,12 @@
 import sqlite3
 import logging
 import os
+import sys
+
+def _get_default_db_path():
+    if getattr(sys, 'frozen', False):
+        return os.path.join(os.path.dirname(sys.executable), 'translated.db')
+    return os.path.abspath(os.path.join(os.path.dirname(__file__), "../translated.db"))
 
 # 配置日志
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -24,7 +30,7 @@ class DatabaseManager:
         if self._connection is None:
             try:
                 # 使用绝对路径，确保从任何目录运行都能找到数据库文件
-                db_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "../translated.db"))
+                db_path = _get_default_db_path()
                 self._connection = sqlite3.connect(db_path)
                 # 启用外键约束
                 self._connection.execute("PRAGMA foreign_keys = ON")

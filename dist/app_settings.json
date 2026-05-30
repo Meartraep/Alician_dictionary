@@ -1,0 +1,12 @@
+{
+  "auto_update": true,
+  "known_db_sha1": "c060220587e43a90b316de3be0577c1957656edf",
+  "auto_update_status": "自动更新开启。",
+  "remote_db_sha1": "",
+  "alic_font": false,
+  "alic_hover_enabled": true,
+  "alic_hover_delay": 300,
+  "update_check_status": "就绪",
+  "data_dir": "D:/files/.webview_profile",
+  "_last_data_root": "D:\\files\\.webview_profile"
+}

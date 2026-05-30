@@ -1,10 +1,20 @@
 import sqlite3
 import os
+import sys
 import logging
+
+def _get_db_path():
+    if getattr(sys, 'frozen', False):
+        return os.path.join(os.path.dirname(sys.executable), 'translated.db')
+    return os.path.join(os.path.dirname(__file__), 'translated.db')
 
 # 配置日志
 def setup_logger():
-    log_file = os.path.join(os.path.dirname(__file__), 'db_update.log')
+    if getattr(sys, 'frozen', False):
+        log_dir = os.path.dirname(sys.executable)
+    else:
+        log_dir = os.path.dirname(__file__)
+    log_file = os.path.join(log_dir, 'db_update.log')
     logging.basicConfig(
         filename=log_file,
         level=logging.INFO,
@@ -19,7 +29,7 @@ def classify_words():
     logger.info("开始执行单词分类更新")
     
     # 数据库文件路径
-    db_path = os.path.join(os.path.dirname(__file__), 'translated.db')
+    db_path = _get_db_path()
     
     # 检查数据库文件是否存在
     if not os.path.exists(db_path):

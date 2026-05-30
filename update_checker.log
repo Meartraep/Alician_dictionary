@@ -728,3 +728,123 @@
 2026-05-10 02:27:30,417 - WARNING - 无法获取GitHub文件内容
 2026-05-10 02:27:30,417 - WARNING - 无法获取文件内容，跳过更新
 2026-05-10 02:27:30,417 - INFO - 后台检查完成，需要更新: False
+2026-05-15 01:19:45,251 - INFO - 开始后台检查更新...
+2026-05-15 01:19:47,802 - INFO - 从https://api.github.com/repos/Meartraep/Alician_dictionary/contents/translated.db获取SHA值成功: a120380487e40929a2f41ba8eed6647138045195
+2026-05-15 01:19:47,806 - INFO - 远程SHA已变化: cached=, remote=a120380487e40929a2f41ba8eed6647138045195
+2026-05-15 01:20:04,341 - ERROR - 从https://raw.githubusercontent.com/Meartraep/Alician_dictionary/main/translated.db下载失败: HTTPSConnectionPool(host='raw.githubusercontent.com', port=443): Read timed out.
+2026-05-15 01:20:05,146 - INFO - 自动更新已关闭，跳过写入
+2026-05-15 01:21:32,582 - INFO - 开始后台检查更新...
+2026-05-15 01:21:34,443 - INFO - 从https://api.github.com/repos/Meartraep/Alician_dictionary/contents/translated.db获取SHA值成功: a120380487e40929a2f41ba8eed6647138045195
+2026-05-15 01:21:34,445 - INFO - 远程SHA已变化: cached=, remote=a120380487e40929a2f41ba8eed6647138045195
+2026-05-15 01:21:36,634 - INFO - 从https://raw.githubusercontent.com/Meartraep/Alician_dictionary/main/translated.db下载成功，大小: 716800字节
+2026-05-15 01:21:36,637 - INFO - 检测到更新: 本地SHA1=a017e482a306a319138853393770225e895e2b33, 云端SHA1=c060220587e43a90b316de3be0577c1957656edf
+2026-05-15 01:21:42,687 - INFO - 开始差异对比流程...
+2026-05-15 01:22:08,959 - INFO - 差异对话框返回: stdout=ACCEPTED, stderr=
+2026-05-15 01:22:08,959 - INFO - 用户采纳更新
+2026-05-15 01:22:13,833 - INFO - 从https://api.github.com/repos/Meartraep/Alician_dictionary/contents/translated.db获取SHA值成功: a120380487e40929a2f41ba8eed6647138045195
+2026-05-15 01:22:13,838 - INFO - 更新后本地SHA1: c060220587e43a90b316de3be0577c1957656edf
+2026-05-15 01:22:16,648 - INFO - 开始后台检查更新...
+2026-05-15 01:22:19,896 - INFO - 从https://api.github.com/repos/Meartraep/Alician_dictionary/contents/translated.db获取SHA值成功: a120380487e40929a2f41ba8eed6647138045195
+2026-05-15 01:22:19,899 - INFO - 远程SHA未变化 (a120380487e40929a2f41ba8eed6647138045195)，跳过下载
+2026-05-15 11:22:34,652 - INFO - 无需更新
+2026-05-15 12:46:34,838 - INFO - 开始后台检查更新...
+2026-05-15 12:46:36,355 - INFO - 从https://api.github.com/repos/Meartraep/Alician_dictionary/contents/translated.db获取SHA值成功: a120380487e40929a2f41ba8eed6647138045195
+2026-05-15 12:46:36,356 - INFO - 远程SHA未变化 (a120380487e40929a2f41ba8eed6647138045195)，跳过下载
+2026-05-15 12:47:00,046 - INFO - 自动更新已关闭，跳过写入
+2026-05-15 12:47:27,983 - INFO - 开始后台检查更新...
+2026-05-15 12:47:29,203 - INFO - 从https://api.github.com/repos/Meartraep/Alician_dictionary/contents/translated.db获取SHA值成功: a120380487e40929a2f41ba8eed6647138045195
+2026-05-15 12:47:29,203 - INFO - 远程SHA未变化 (a120380487e40929a2f41ba8eed6647138045195)，跳过下载
+2026-05-15 12:47:34,248 - INFO - 无需更新
+2026-05-15 12:47:37,578 - INFO - 开始后台检查更新...
+2026-05-15 12:47:38,765 - INFO - 从https://api.github.com/repos/Meartraep/Alician_dictionary/contents/translated.db获取SHA值成功: a120380487e40929a2f41ba8eed6647138045195
+2026-05-15 12:47:38,766 - INFO - 远程SHA未变化 (a120380487e40929a2f41ba8eed6647138045195)，跳过下载
+2026-05-15 12:47:53,653 - INFO - 无需更新
+2026-05-15 12:47:56,838 - INFO - 开始后台检查更新...
+2026-05-15 12:47:57,920 - INFO - 从https://api.github.com/repos/Meartraep/Alician_dictionary/contents/translated.db获取SHA值成功: a120380487e40929a2f41ba8eed6647138045195
+2026-05-15 12:47:57,921 - INFO - 远程SHA未变化 (a120380487e40929a2f41ba8eed6647138045195)，跳过下载
+2026-05-15 12:49:01,757 - INFO - 无需更新
+2026-05-15 12:57:25,986 - INFO - 开始后台检查更新...
+2026-05-15 12:57:27,278 - INFO - 从https://api.github.com/repos/Meartraep/Alician_dictionary/contents/translated.db获取SHA值成功: a120380487e40929a2f41ba8eed6647138045195
+2026-05-15 12:57:27,279 - INFO - 远程SHA未变化 (a120380487e40929a2f41ba8eed6647138045195)，跳过下载
+2026-05-15 13:03:03,739 - INFO - 无需更新
+2026-05-15 13:06:25,554 - INFO - 开始后台检查更新...
+2026-05-15 13:06:26,928 - INFO - 从https://api.github.com/repos/Meartraep/Alician_dictionary/contents/translated.db获取SHA值成功: a120380487e40929a2f41ba8eed6647138045195
+2026-05-15 13:06:26,929 - INFO - 远程SHA未变化 (a120380487e40929a2f41ba8eed6647138045195)，跳过下载
+2026-05-15 13:06:44,174 - INFO - 无需更新
+2026-05-15 13:06:49,640 - INFO - 开始后台检查更新...
+2026-05-15 13:06:51,295 - INFO - 从https://api.github.com/repos/Meartraep/Alician_dictionary/contents/translated.db获取SHA值成功: a120380487e40929a2f41ba8eed6647138045195
+2026-05-15 13:06:51,296 - INFO - 远程SHA未变化 (a120380487e40929a2f41ba8eed6647138045195)，跳过下载
+2026-05-15 13:07:05,895 - INFO - 无需更新
+2026-05-15 13:39:31,035 - INFO - 开始后台检查更新...
+2026-05-15 13:39:32,621 - INFO - 从https://api.github.com/repos/Meartraep/Alician_dictionary/contents/translated.db获取SHA值成功: a120380487e40929a2f41ba8eed6647138045195
+2026-05-15 13:39:32,622 - INFO - 远程SHA未变化 (a120380487e40929a2f41ba8eed6647138045195)，跳过下载
+2026-05-15 13:39:46,657 - INFO - 无需更新
+2026-05-15 13:52:35,211 - INFO - 状态报告: 正在检查更新...
+2026-05-15 13:52:35,212 - INFO - 开始后台检查更新...
+2026-05-15 13:52:36,623 - INFO - 从https://api.github.com/repos/Meartraep/Alician_dictionary/contents/translated.db获取SHA值成功: a120380487e40929a2f41ba8eed6647138045195
+2026-05-15 13:52:36,625 - INFO - 状态报告: 云端版本未变化，无需下载
+2026-05-15 13:52:36,626 - INFO - 远程SHA未变化 (a120380487e40929a2f41ba8eed6647138045195)，跳过下载
+2026-05-15 13:58:36,468 - INFO - 无需更新
+2026-05-15 13:58:38,713 - INFO - 状态报告: 正在检查更新...
+2026-05-15 13:58:38,713 - INFO - 开始后台检查更新...
+2026-05-15 13:58:39,911 - INFO - 从https://api.github.com/repos/Meartraep/Alician_dictionary/contents/translated.db获取SHA值成功: a120380487e40929a2f41ba8eed6647138045195
+2026-05-15 13:58:39,912 - INFO - 状态报告: 云端版本未变化，无需下载
+2026-05-15 13:58:39,914 - INFO - 远程SHA未变化 (a120380487e40929a2f41ba8eed6647138045195)，跳过下载
+2026-05-15 13:58:47,282 - INFO - 状态报告: 正在强制下载云端数据库...
+2026-05-15 13:58:47,283 - INFO - 用户触发强制下载
+2026-05-15 13:58:48,301 - INFO - 从https://raw.githubusercontent.com/Meartraep/Alician_dictionary/main/translated.db下载成功，大小: 716800字节
+2026-05-15 13:58:48,303 - INFO - 强制下载完成，启动差异对比...
+2026-05-15 13:59:13,049 - INFO - 从https://api.github.com/repos/Meartraep/Alician_dictionary/contents/translated.db获取SHA值成功: a120380487e40929a2f41ba8eed6647138045195
+2026-05-15 13:59:13,054 - INFO - 状态报告: 已采纳更新
+2026-05-15 13:59:13,055 - INFO - 用户采纳强制更新，本地SHA1: c060220587e43a90b316de3be0577c1957656edf
+2026-05-15 14:02:28,659 - INFO - 自动更新已关闭，跳过写入
+2026-05-15 14:03:34,135 - INFO - 状态报告: 正在检查更新...
+2026-05-15 14:03:34,136 - INFO - 开始后台检查更新...
+2026-05-15 14:03:35,354 - INFO - 从https://api.github.com/repos/Meartraep/Alician_dictionary/contents/translated.db获取SHA值成功: a120380487e40929a2f41ba8eed6647138045195
+2026-05-15 14:03:35,356 - INFO - 状态报告: 云端版本未变化，无需下载
+2026-05-15 14:03:35,358 - INFO - 远程SHA未变化 (a120380487e40929a2f41ba8eed6647138045195)，跳过下载
+2026-05-15 14:03:44,605 - INFO - 状态报告: 正在强制下载云端数据库...
+2026-05-15 14:03:44,607 - INFO - 用户触发强制下载
+2026-05-15 14:03:45,712 - INFO - 从https://raw.githubusercontent.com/Meartraep/Alician_dictionary/main/translated.db下载成功，大小: 716800字节
+2026-05-15 14:03:45,714 - INFO - 强制下载完成，启动差异对比...
+2026-05-15 14:03:50,032 - INFO - 从https://api.github.com/repos/Meartraep/Alician_dictionary/contents/translated.db获取SHA值成功: a120380487e40929a2f41ba8eed6647138045195
+2026-05-15 14:03:50,037 - INFO - 状态报告: 已采纳更新
+2026-05-15 14:03:50,038 - INFO - 用户采纳强制更新，本地SHA1: c060220587e43a90b316de3be0577c1957656edf
+2026-05-15 14:21:38,140 - INFO - 自动更新已关闭，跳过写入
+2026-05-15 14:22:13,275 - INFO - 状态报告: 正在检查更新...
+2026-05-15 14:22:13,276 - INFO - 开始后台检查更新...
+2026-05-15 14:22:14,461 - INFO - 从https://api.github.com/repos/Meartraep/Alician_dictionary/contents/translated.db获取SHA值成功: a120380487e40929a2f41ba8eed6647138045195
+2026-05-15 14:22:14,463 - INFO - 状态报告: 云端版本未变化，无需下载
+2026-05-15 14:22:14,463 - INFO - 远程SHA未变化 (a120380487e40929a2f41ba8eed6647138045195)，跳过下载
+2026-05-15 14:22:19,503 - INFO - 状态报告: 正在强制下载云端数据库...
+2026-05-15 14:22:19,505 - INFO - 用户触发强制下载
+2026-05-15 14:22:20,378 - INFO - 从https://raw.githubusercontent.com/Meartraep/Alician_dictionary/main/translated.db下载成功，大小: 716800字节
+2026-05-15 14:22:20,379 - INFO - 强制下载完成，启动差异对比...
+2026-05-15 14:24:20,447 - INFO - 状态报告: 差异对比超时
+2026-05-15 14:38:31,351 - INFO - 无需更新
+2026-05-15 14:38:40,321 - INFO - 状态报告: 正在检查更新...
+2026-05-15 14:38:40,322 - INFO - 手动检查更新开始
+2026-05-15 14:38:41,611 - INFO - 从https://api.github.com/repos/Meartraep/Alician_dictionary/contents/translated.db获取SHA值成功: a120380487e40929a2f41ba8eed6647138045195
+2026-05-15 14:38:41,612 - INFO - 状态报告: 正在下载云端数据库...
+2026-05-15 14:38:43,053 - INFO - 从https://raw.githubusercontent.com/Meartraep/Alician_dictionary/main/translated.db下载成功，大小: 716800字节
+2026-05-15 14:38:43,055 - INFO - 状态报告: 正在对比差异...
+2026-05-15 14:38:43,056 - INFO - 检测到差异: 本地=589ad45e29731329bae91dcfde2fd3af0be320bc, 云端=c060220587e43a90b316de3be0577c1957656edf
+2026-05-15 14:38:52,730 - INFO - 状态报告: 已采纳更新
+2026-05-15 14:49:10,756 - INFO - 状态报告: 正在检查更新...
+2026-05-15 14:49:10,759 - INFO - 手动检查更新开始
+2026-05-15 14:49:11,941 - INFO - 从https://api.github.com/repos/Meartraep/Alician_dictionary/contents/translated.db获取SHA值成功: a120380487e40929a2f41ba8eed6647138045195
+2026-05-15 14:49:11,942 - INFO - 状态报告: 正在下载云端数据库...
+2026-05-15 14:49:12,995 - INFO - 从https://raw.githubusercontent.com/Meartraep/Alician_dictionary/main/translated.db下载成功，大小: 716800字节
+2026-05-15 14:49:12,997 - INFO - 状态报告: 正在对比差异...
+2026-05-15 14:49:12,998 - INFO - 检测到差异: 本地=589ad45e29731329bae91dcfde2fd3af0be320bc, 云端=c060220587e43a90b316de3be0577c1957656edf
+2026-05-15 14:49:59,515 - INFO - 状态报告: 已采纳更新
+2026-05-15 21:29:15,213 - INFO - 状态报告: 正在检查更新...
+2026-05-15 21:29:15,215 - INFO - 手动检查更新开始
+2026-05-15 21:29:49,907 - INFO - 从https://api.github.com/repos/Meartraep/Alician_dictionary/contents/translated.db获取SHA值成功: a120380487e40929a2f41ba8eed6647138045195
+2026-05-15 21:29:49,909 - INFO - 状态报告: 正在下载云端数据库...
+2026-05-15 21:30:21,567 - INFO - 从https://raw.githubusercontent.com/Meartraep/Alician_dictionary/main/translated.db下载成功，大小: 716800字节
+2026-05-15 21:30:21,571 - INFO - 状态报告: 云端版本未变化，无需下载
+2026-05-15 21:30:29,694 - INFO - 状态报告: 正在强制下载云端数据库...
+2026-05-15 21:30:29,695 - INFO - 用户触发强制下载
+2026-05-15 21:30:55,076 - INFO - 从https://raw.githubusercontent.com/Meartraep/Alician_dictionary/main/translated.db下载成功，大小: 716800字节
+2026-05-15 21:30:55,076 - INFO - 强制下载完成，启动差异对比...

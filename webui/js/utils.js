@@ -93,9 +93,45 @@ function toast(message, kind, duration) {
 
 var _alicHoverTimer = null;
 var _alicHoverEl = null;
+var _alicHoverWordSpan = null;
+
+function _alicHoverClearWordSpan() {
+  if (_alicHoverWordSpan && _alicHoverWordSpan.parentNode) {
+    var parent = _alicHoverWordSpan.parentNode;
+    _alicHoverWordSpan.replaceWith(document.createTextNode(_alicHoverWordSpan.textContent));
+    parent.normalize();
+  }
+  _alicHoverWordSpan = null;
+}
+
+function _alicGetWordRangeAtPoint(rootEl, clientX, clientY) {
+  var range = null;
+  if (document.caretRangeFromPoint) {
+    range = document.caretRangeFromPoint(clientX, clientY);
+  } else if (document.caretPositionFromPoint) {
+    var cp = document.caretPositionFromPoint(clientX, clientY);
+    if (cp) { range = document.createRange(); range.setStart(cp.offsetNode, cp.offset); range.collapse(true); }
+  }
+  if (!range) return null;
+  var node = range.startContainer;
+  if (node.nodeType !== Node.TEXT_NODE) return null;
+  var text = node.nodeValue || "";
+  var offset = clamp(range.startOffset, 0, text.length);
+  var start = offset;
+  while (start > 0 && /[^\s.,;:!?()[\]{}"'<>…—\-–\u2018\u2019\u201C\u201D]/.test(text[start - 1])) {
+    start--;
+  }
+  var end = offset;
+  while (end < text.length && /[^\s.,;:!?()[\]{}"'<>…—\-–\u2018\u2019\u201C\u201D]/.test(text[end])) {
+    end++;
+  }
+  if (start === end) return null;
+  return { node: node, start: start, end: end, word: text.slice(start, end) };
+}
 
 function _alicHoverClear() {
   if (_alicHoverTimer) { clearTimeout(_alicHoverTimer); _alicHoverTimer = null; }
+  _alicHoverClearWordSpan();
   if (_alicHoverEl) {
     _alicHoverEl.classList.remove("alic-hover-system", "alic-hover-alic");
     _alicHoverEl = null;
@@ -129,6 +165,41 @@ function _alicHoverMove(e) {
   }
   if (el.closest(".no-alic-font") || el.closest("button") || el.closest("input") || el.closest("textarea")) {
     _alicHoverClear();
+    return;
+  }
+
+  var inEditor = els.writingEditor && els.writingEditor.contains(el);
+
+  if (inEditor) {
+    var wordRange = _alicGetWordRangeAtPoint(els.writingEditor, e.clientX, e.clientY);
+    if (wordRange) {
+      if (_alicHoverWordSpan && _alicHoverWordSpan.parentNode) {
+        var currentText = _alicHoverWordSpan.textContent;
+        var currentWord = currentText || "";
+        if (currentWord === wordRange.word) return;
+      }
+      _alicHoverClear();
+      var wrapRange = document.createRange();
+      wrapRange.setStart(wordRange.node, wordRange.start);
+      wrapRange.setEnd(wordRange.node, wordRange.end);
+      var span = document.createElement("span");
+      var delay = state.settings.alicHoverDelay || 300;
+      _alicHoverTimer = setTimeout(function () {
+        if (!_alicHoverWordSpan) {
+          try { wrapRange.surroundContents(span); } catch (_) {}
+          if (span.parentNode) {
+            _alicHoverWordSpan = span;
+            if (state.settings.alicFont) {
+              _alicHoverWordSpan.classList.add("alic-hover-system");
+            } else {
+              _alicHoverWordSpan.classList.add("alic-hover-alic");
+            }
+          }
+        }
+      }, delay);
+    } else {
+      _alicHoverClear();
+    }
     return;
   }
 

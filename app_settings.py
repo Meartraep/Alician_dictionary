@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
+import sys
 from pathlib import Path
 from typing import Any, Dict
 
@@ -14,9 +16,13 @@ class AppSettings:
             "auto_update": True,
             "known_db_sha1": "",
             "auto_update_status": "",
+            "remote_db_sha1": "",
             "alic_font": False,
             "alic_hover_enabled": True,
             "alic_hover_delay": 300,
+            "update_check_status": "就绪",
+            "data_dir": "",
+            "_last_data_root": "",
         }
         self.settings = self._load()
         self.detect_local_db_change()
@@ -81,7 +87,23 @@ class AppSettings:
             "alic_font": bool(self.settings.get("alic_font", False)),
             "alic_hover_enabled": bool(self.settings.get("alic_hover_enabled", True)),
             "alic_hover_delay": int(self.settings.get("alic_hover_delay", 300)),
+            "update_check_status": str(self.settings.get("update_check_status") or "就绪"),
+            "data_dir": str(self.settings.get("data_dir") or ""),
         }
+
+    def resolve_data_root(self, fallback: Path) -> Path:
+        val = str(self.settings.get("data_dir") or "").strip()
+        if val:
+            p = Path(val).resolve()
+            if p.exists() or p.parent.exists():
+                return p
+        return Path(fallback)
+
+    def last_data_root(self) -> Path:
+        raw = str(self.settings.get("_last_data_root") or "").strip()
+        if raw:
+            return Path(raw).resolve()
+        return Path(self.settings_path).parent.resolve()
 
     def set_auto_update(self, enabled: bool) -> Dict[str, Any]:
         self.settings["auto_update"] = bool(enabled)
@@ -103,3 +125,7 @@ class AppSettings:
             self.settings["auto_update"] = False
             self.settings["auto_update_status"] = "检测到本地数据库已更改，已自动关闭自动更新。"
             self.save()
+
+    def set_update_check_status(self, status: str) -> None:
+        self.settings["update_check_status"] = status
+        self.save()
