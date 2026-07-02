@@ -161,7 +161,7 @@ class WritingAssistantService:
         if not text:
             return {"ok": False, "message": "请选择要查询的内容。", "explanations": [], "similar_words": []}
         with self._lock:
-            explanations: Dict[str, str] = {}
+            explanations: Dict[str, Dict[str, str]] = {}
             similar_words: Dict[str, Dict[str, Any]] = {}
             conn = self.db_manager.get_connection()
             cursor = conn.cursor()
@@ -182,40 +182,62 @@ class WritingAssistantService:
                     "SELECT explanation FROM phrase WHERE LOWER(PHRASE) = LOWER(?)"
                 cursor.execute(query, (phrase,))
                 result = cursor.fetchone()
-                explanations[phrase] = result[0] if result else "未找到释义"
+                explanations[phrase] = {
+                    "part_of_speech": "phrase",
+                    "explanation": result[0] if result else "未找到释义",
+                }
             remaining_words = re.findall(r"\b\w+\b", remaining_text)
             for word in remaining_words:
                 if not word.strip():
                     continue
-                query = "SELECT explanation FROM dictionary WHERE words = ?" if strict_case else \
-                    "SELECT explanation FROM dictionary WHERE LOWER(words) = LOWER(?)"
+                query = "SELECT explanation, class FROM dictionary WHERE words = ?" if strict_case else \
+                    "SELECT explanation, class FROM dictionary WHERE LOWER(words) = LOWER(?)"
                 cursor.execute(query, (word,))
                 result = cursor.fetchone()
                 if result:
-                    explanations[word] = result[0]
+                    explanations[word] = {
+                        "part_of_speech": result[1] or "",
+                        "explanation": result[0] or "未找到释义",
+                    }
                     continue
-                explanations[word] = "未找到释义"
+                explanations[word] = {"part_of_speech": "", "explanation": "未找到释义"}
                 best_match, best_score = None, 0.0
                 for dict_word in all_words:
                     score = _lev_ratio(word, dict_word) if strict_case else _lev_ratio(word.lower(), dict_word.lower())
                     if score > best_score and score > 0.6:
                         best_score, best_match = score, dict_word
                 if best_match:
-                    q2 = "SELECT explanation FROM dictionary WHERE words = ?" if strict_case else \
-                        "SELECT explanation FROM dictionary WHERE LOWER(words) = LOWER(?)"
+                    q2 = "SELECT explanation, class FROM dictionary WHERE words = ?" if strict_case else \
+                        "SELECT explanation, class FROM dictionary WHERE LOWER(words) = LOWER(?)"
                     cursor.execute(q2, (best_match,))
                     sr = cursor.fetchone()
                     if sr:
-                        similar_words[word] = {"similar_word": best_match, "explanation": sr[0], "score": round(best_score, 4)}
+                        similar_words[word] = {
+                            "similar_word": best_match,
+                            "part_of_speech": sr[1] or "",
+                            "explanation": sr[0] or "未找到释义",
+                            "score": round(best_score, 4),
+                        }
             if not explanations:
-                q = "SELECT explanation FROM dictionary WHERE words = ?" if strict_case else \
-                    "SELECT explanation FROM dictionary WHERE LOWER(words) = LOWER(?)"
+                q = "SELECT explanation, class FROM dictionary WHERE words = ?" if strict_case else \
+                    "SELECT explanation, class FROM dictionary WHERE LOWER(words) = LOWER(?)"
                 cursor.execute(q, (text,))
                 result = cursor.fetchone()
-                explanations[text] = result[0] if result else "未找到释义"
-            explanation_items = [{"word": key, "explanation": value} for key, value in explanations.items()]
+                explanations[text] = {
+                    "part_of_speech": (result[1] or "") if result else "",
+                    "explanation": (result[0] or "未找到释义") if result else "未找到释义",
+                }
+            explanation_items = [
+                {
+                    "word": key,
+                    "part_of_speech": value.get("part_of_speech", ""),
+                    "explanation": value.get("explanation", "未找到释义"),
+                }
+                for key, value in explanations.items()
+            ]
             similar_items = [
                 {"word": key, "similar_word": value["similar_word"],
+                 "part_of_speech": value.get("part_of_speech", ""),
                  "explanation": value["explanation"], "score": value["score"]}
                 for key, value in similar_words.items()
             ]

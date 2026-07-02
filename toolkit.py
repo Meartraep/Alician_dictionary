@@ -34,7 +34,10 @@ if getattr(sys, 'frozen', False) and len(sys.argv) > 1:
         import tkinter as tk
         from db_exporter import DBExporter
         root = tk.Tk()
-        DBExporter(root)
+        default_format = "xlsx"
+        if len(sys.argv) > 2 and str(sys.argv[2]).lower() in ("xlsx", "csv"):
+            default_format = str(sys.argv[2]).lower()
+        DBExporter(root, default_format=default_format)
         root.mainloop()
         sys.exit(0)
 
@@ -77,10 +80,24 @@ def _migrate_data_files(old_root, new_root):
             _safe_copy_file(src, new_p / name)
 
 
+def _ensure_local_db_exists(data_root: Path) -> Path:
+    local_db_path = data_root / "translated.db"
+    if local_db_path.exists():
+        return local_db_path
+
+    source_db_path = APP_ROOT / "translated.db"
+    if source_db_path.exists() and source_db_path.resolve() != local_db_path.resolve():
+        data_root.mkdir(parents=True, exist_ok=True)
+        _safe_copy_file(source_db_path, local_db_path)
+
+    return local_db_path
+
+
 class WelcomeAPI:
-    def __init__(self, default_dir: str) -> None:
+    def __init__(self, default_dir: str, allow_data_dir_selection: bool) -> None:
         self._closed = False
         self._default_dir = default_dir
+        self._allow_data_dir_selection = bool(allow_data_dir_selection)
         self.data_dir = ""
 
     def close(self) -> bool:
@@ -95,10 +112,15 @@ class WelcomeAPI:
         return True
 
     def set_data_dir(self, path: str) -> bool:
+        if not self._allow_data_dir_selection:
+            self.data_dir = ""
+            return True
         self.data_dir = (path or "").strip()
         return True
 
     def browse_data_dir(self) -> str:
+        if not self._allow_data_dir_selection:
+            return ""
         import tkinter as tk
         from tkinter import filedialog
 
@@ -118,7 +140,7 @@ class WelcomeAPI:
         return path or ""
 
 
-def show_welcome_window() -> str:
+def show_welcome_window(allow_data_dir_selection: bool) -> str:
     import webview
 
     project_root = APP_ROOT
@@ -127,10 +149,11 @@ def show_welcome_window() -> str:
         mark_launched()
         return ""
 
-    api = WelcomeAPI(str(APP_ROOT))
+    api = WelcomeAPI(str(APP_ROOT), allow_data_dir_selection)
+    welcome_url = f"{welcome_path.as_uri()}#allowDataDir={'1' if allow_data_dir_selection else '0'}"
     webview.create_window(
         title="欢迎使用 Meartraep 工具集",
-        url=welcome_path.as_uri(),
+        url=welcome_url,
         js_api=api,
         width=560,
         height=460,
@@ -148,35 +171,44 @@ def main(
 ) -> None:
     project_root = APP_ROOT
     settings_path = project_root / "app_settings.json"
+    is_frozen = getattr(sys, 'frozen', False)
 
     app_settings = AppSettings(settings_path, project_root / "translated.db")
 
     if is_first_launch():
-        chosen_dir = show_welcome_window()
+        chosen_dir = show_welcome_window(is_frozen)
         if chosen_dir:
             app_settings.settings["data_dir"] = chosen_dir
             app_settings.settings["_last_data_root"] = chosen_dir
             app_settings.save()
 
-    data_root = app_settings.resolve_data_root(APP_ROOT)
-    if getattr(sys, 'frozen', False) and str(data_root) != str(APP_ROOT):
-        data_root.mkdir(parents=True, exist_ok=True)
+    if is_frozen:
+        data_root = app_settings.resolve_data_root(APP_ROOT)
+        if str(data_root) != str(APP_ROOT):
+            data_root.mkdir(parents=True, exist_ok=True)
 
-    last_root_raw = str(app_settings.settings.get("_last_data_root") or "").strip()
-    last_root = Path(last_root_raw) if last_root_raw else None
-    if last_root is not None and last_root.resolve() != data_root.resolve():
-        _migrate_data_files(last_root, data_root)
-    app_settings.settings["_last_data_root"] = str(data_root.resolve())
-    if str(data_root) != str(APP_ROOT):
-        app_settings.settings_path = data_root / "app_settings.json"
-        app_settings.save()
+        last_root_raw = str(app_settings.settings.get("_last_data_root") or "").strip()
+        last_root = Path(last_root_raw) if last_root_raw else None
+        if last_root is not None and last_root.resolve() != data_root.resolve():
+            _migrate_data_files(last_root, data_root)
+        app_settings.settings["_last_data_root"] = str(data_root.resolve())
+        if str(data_root) != str(APP_ROOT):
+            app_settings.settings_path = data_root / "app_settings.json"
+            app_settings.save()
+        else:
+            app_settings.save()
+
+        local_db_path = _ensure_local_db_exists(data_root)
     else:
+        data_root = APP_ROOT
+        app_settings.settings["data_dir"] = ""
+        app_settings.settings["_last_data_root"] = str(APP_ROOT.resolve())
         app_settings.save()
+        local_db_path = APP_ROOT / "translated.db"
 
-    local_db_path = data_root / "translated.db"
     app_settings.db_path = local_db_path
 
-    if getattr(sys, 'frozen', False) and not local_db_path.exists():
+    if is_frozen and not local_db_path.exists():
         import shutil
         bundled_db = Path(sys._MEIPASS) / "translated.db"
         if bundled_db.exists():

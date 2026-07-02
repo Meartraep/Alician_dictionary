@@ -1,15 +1,17 @@
 #MIT
+import csv
 import sqlite3
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 import openpyxl
 from openpyxl.utils import get_column_letter
 import os
+import sys
 import threading
 import time
 
 class DBExporter:
-    def __init__(self, root):
+    def __init__(self, root, default_format="xlsx"):
         self.root = root
         self.root.title("数据库表导出工具")
         self.root.geometry("700x600")
@@ -20,6 +22,7 @@ class DBExporter:
         self.selected_tables = []
         self.export_path = ""
         self.export_filename = "export.xlsx"
+        self.export_format = default_format if default_format in ("xlsx", "csv") else "xlsx"
         self.is_exporting = False
         self.export_cancelled = False
         self.log_messages = []
@@ -96,9 +99,27 @@ class DBExporter:
         filename_frame = ttk.Frame(frame)
         filename_frame.pack(fill=tk.X, pady=5)
         ttk.Label(filename_frame, text="文件名:").pack(side=tk.LEFT, padx=5)
-        self.export_filename_var = tk.StringVar(value="export.xlsx")
+        self.export_filename_var = tk.StringVar(value="export")
         ttk.Entry(filename_frame, textvariable=self.export_filename_var, width=30).pack(side=tk.LEFT, padx=5)
-        ttk.Label(filename_frame, text=".xlsx").pack(side=tk.LEFT)
+        self.export_suffix_label = ttk.Label(filename_frame, text=".xlsx")
+        self.export_suffix_label.pack(side=tk.LEFT)
+
+        format_frame = ttk.Frame(frame)
+        format_frame.pack(fill=tk.X, pady=5)
+        ttk.Label(format_frame, text="导出格式:").pack(side=tk.LEFT, padx=5)
+        self.export_format_var = tk.StringVar(value=self.export_format)
+        format_combo = ttk.Combobox(
+            format_frame,
+            textvariable=self.export_format_var,
+            state="readonly",
+            values=["xlsx", "csv"],
+            width=10,
+        )
+        format_combo.pack(side=tk.LEFT, padx=5)
+        format_combo.bind("<<ComboboxSelected>>", lambda _e: self.on_format_change())
+        self.format_hint_label = ttk.Label(format_frame, text="")
+        self.format_hint_label.pack(side=tk.LEFT, padx=8)
+        self.on_format_change()
     
     def create_button_frame(self):
         """创建操作按钮区域"""
@@ -147,6 +168,16 @@ class DBExporter:
         directory = filedialog.askdirectory(title="选择导出路径")
         if directory:
             self.export_path_var.set(directory)
+
+    def on_format_change(self):
+        """更新导出格式相关文案"""
+        self.export_format = self.export_format_var.get() or "xlsx"
+        if self.export_format == "csv":
+            self.export_suffix_label.config(text=".csv")
+            self.format_hint_label.config(text="CSV模式将按“每表一个文件”导出，文件名与表名相同")
+        else:
+            self.export_suffix_label.config(text=".xlsx")
+            self.format_hint_label.config(text="XLSX模式将导出为一个工作簿，所选表各自独立工作表")
     
     def connect_db(self):
         """连接到数据库并获取表列表"""
@@ -205,7 +236,8 @@ class DBExporter:
         
         self.selected_tables = [self.table_list.get(i) for i in selected_indices]
         self.export_path = self.export_path_var.get()
-        self.export_filename = self.export_filename_var.get()
+        self.export_filename = self.export_filename_var.get().strip() or "export"
+        self.export_format = self.export_format_var.get() or "xlsx"
         
         # 检查导出路径
         if not self.export_path:
@@ -216,13 +248,21 @@ class DBExporter:
             messagebox.showerror("错误", "导出路径不存在")
             return
         
-        # 构建完整的导出文件路径
-        full_export_path = os.path.join(self.export_path, f"{self.export_filename}.xlsx")
-        
-        # 检查文件是否已存在
-        if os.path.exists(full_export_path):
-            if not messagebox.askyesno("确认", "文件已存在，是否覆盖？"):
-                return
+        full_export_path = ""
+        if self.export_format == "xlsx":
+            full_export_path = os.path.join(self.export_path, f"{self.export_filename}.xlsx")
+            if os.path.exists(full_export_path):
+                if not messagebox.askyesno("确认", "文件已存在，是否覆盖？"):
+                    return
+        else:
+            existing_files = [
+                os.path.join(self.export_path, f"{table_name}.csv")
+                for table_name in self.selected_tables
+                if os.path.exists(os.path.join(self.export_path, f"{table_name}.csv"))
+            ]
+            if existing_files:
+                if not messagebox.askyesno("确认", f"已有 {len(existing_files)} 个同名CSV文件，是否覆盖？"):
+                    return
         
         # 准备导出
         self.is_exporting = True
@@ -247,14 +287,15 @@ class DBExporter:
         self.root.after(100, self.check_export_status)
     
     def export_tables(self, full_export_path):
-        """导出选中的表到Excel文件"""
+        """导出选中的表到文件"""
         try:
-            # 创建Excel工作簿
-            workbook = openpyxl.Workbook()
-            # 删除默认的sheet
-            if 'Sheet' in workbook.sheetnames:
-                workbook.remove(workbook['Sheet'])
-            
+            workbook = None
+            if self.export_format == "xlsx":
+                workbook = openpyxl.Workbook()
+                if 'Sheet' in workbook.sheetnames:
+                    workbook.remove(workbook['Sheet'])
+
+            encoding = self.get_db_encoding()
             total_tables = len(self.selected_tables)
             for i, table_name in enumerate(self.selected_tables):
                 if self.export_cancelled:
@@ -282,44 +323,45 @@ class DBExporter:
                     
                     conn.close()
                     
-                    # 创建新的sheet
-                    sheet = workbook.create_sheet(title=table_name)
-                    
-                    # 写入列名
-                    for col_idx, col_name in enumerate(column_names, 1):
-                        sheet.cell(row=1, column=col_idx, value=col_name)
-                    
-                    # 写入数据
-                    for row_idx, row in enumerate(rows, 2):
-                        for col_idx, value in enumerate(row, 1):
-                            sheet.cell(row=row_idx, column=col_idx, value=value)
-                    
-                    # 调整列宽
-                    for col_idx, col_name in enumerate(column_names, 1):
-                        max_width = len(col_name)
-                        for row_idx in range(2, len(rows) + 2):
-                            cell_value = str(sheet.cell(row=row_idx, column=col_idx).value)
-                            if len(cell_value) > max_width:
-                                max_width = len(cell_value)
-                        sheet.column_dimensions[get_column_letter(col_idx)].width = min(max_width + 2, 50)
+                    if self.export_format == "xlsx":
+                        sheet = workbook.create_sheet(title=table_name)
+                        for col_idx, col_name in enumerate(column_names, 1):
+                            sheet.cell(row=1, column=col_idx, value=col_name)
+                        for row_idx, row in enumerate(rows, 2):
+                            for col_idx, value in enumerate(row, 1):
+                                sheet.cell(row=row_idx, column=col_idx, value=value)
+                        for col_idx, col_name in enumerate(column_names, 1):
+                            max_width = len(col_name)
+                            for row_idx in range(2, len(rows) + 2):
+                                cell_value = str(sheet.cell(row=row_idx, column=col_idx).value)
+                                if len(cell_value) > max_width:
+                                    max_width = len(cell_value)
+                            sheet.column_dimensions[get_column_letter(col_idx)].width = min(max_width + 2, 50)
+                    else:
+                        csv_path = os.path.join(self.export_path, f"{table_name}.csv")
+                        with open(csv_path, "w", encoding=encoding, newline="") as csv_file:
+                            writer = csv.writer(csv_file)
+                            writer.writerow(column_names)
+                            writer.writerows(rows)
                     
                     self.log(f"成功导出表: {table_name} ({len(rows)} 行数据)")
                 except Exception as e:
                     self.log(f"导出表 {table_name} 失败: {e}")
             
             if not self.export_cancelled:
-                # 保存工作簿
-                workbook.save(full_export_path)
-                workbook.close()
+                if self.export_format == "xlsx" and workbook is not None:
+                    workbook.save(full_export_path)
+                    workbook.close()
                 
-                # 更新进度为100%
                 self.progress_var.set(100)
                 self.progress_label.config(text="导出完成")
                 
-                self.log(f"成功导出 {len(self.selected_tables)} 个表到文件: {full_export_path}")
+                if self.export_format == "xlsx":
+                    self.log(f"成功导出 {len(self.selected_tables)} 个表到文件: {full_export_path}")
+                else:
+                    self.log(f"成功导出 {len(self.selected_tables)} 个表到目录: {self.export_path} (编码: {encoding})")
                 
-                # 导出完成后提示
-                self.root.after(100, lambda: self.export_complete(full_export_path))
+                self.root.after(100, lambda: self.export_complete(full_export_path, encoding))
         except Exception as e:
             self.log(f"导出过程中发生错误: {e}")
             self.root.after(100, lambda: messagebox.showerror("错误", f"导出过程中发生错误: {e}"))
@@ -338,26 +380,51 @@ class DBExporter:
         if self.is_exporting:
             self.root.after(100, self.check_export_status)
     
-    def export_complete(self, full_export_path):
+    def get_db_encoding(self):
+        """获取数据库编码并映射到Python编码名"""
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            cursor.execute("PRAGMA encoding")
+            row = cursor.fetchone()
+            conn.close()
+            encoding_name = str((row or ["UTF-8"])[0] or "UTF-8").upper()
+        except Exception:
+            encoding_name = "UTF-8"
+        return {
+            "UTF-8": "utf-8",
+            "UTF-16": "utf-16",
+            "UTF-16LE": "utf-16-le",
+            "UTF-16BE": "utf-16-be",
+        }.get(encoding_name, "utf-8")
+
+    def export_complete(self, full_export_path, encoding):
         """导出完成后的处理"""
-        # 显示成功提示
-        response = messagebox.askyesnocancel(
-            "导出完成", 
-            f"成功导出 {len(self.selected_tables)} 个表到文件:\n{full_export_path}\n\n是否打开导出文件？"
-        )
-        
-        if response is True:
-            # 打开导出文件
-            try:
-                os.startfile(full_export_path)
-            except Exception as e:
-                self.log(f"打开文件失败: {e}")
-        elif response is False:
-            # 打开文件所在目录
-            try:
-                os.startfile(os.path.dirname(full_export_path))
-            except Exception as e:
-                self.log(f"打开目录失败: {e}")
+        if self.export_format == "xlsx":
+            response = messagebox.askyesnocancel(
+                "导出完成", 
+                f"成功导出 {len(self.selected_tables)} 个表到文件:\n{full_export_path}\n\n是否打开导出文件？"
+            )
+            if response is True:
+                try:
+                    os.startfile(full_export_path)
+                except Exception as e:
+                    self.log(f"打开文件失败: {e}")
+            elif response is False:
+                try:
+                    os.startfile(os.path.dirname(full_export_path))
+                except Exception as e:
+                    self.log(f"打开目录失败: {e}")
+        else:
+            response = messagebox.askyesno(
+                "导出完成",
+                f"成功导出 {len(self.selected_tables)} 个表到目录:\n{self.export_path}\n编码: {encoding}\n\n是否打开导出目录？"
+            )
+            if response:
+                try:
+                    os.startfile(self.export_path)
+                except Exception as e:
+                    self.log(f"打开目录失败: {e}")
     
     def log(self, message):
         """记录日志信息"""
@@ -373,5 +440,8 @@ class DBExporter:
 
 if __name__ == "__main__":
     root = tk.Tk()
-    app = DBExporter(root)
+    default_format = "xlsx"
+    if len(sys.argv) > 1 and str(sys.argv[1]).lower() in ("xlsx", "csv"):
+        default_format = str(sys.argv[1]).lower()
+    app = DBExporter(root, default_format=default_format)
     root.mainloop()

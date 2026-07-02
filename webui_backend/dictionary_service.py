@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import re
 import threading
 from collections import defaultdict
@@ -9,6 +10,9 @@ from dictionary_app.config import Config as DictionaryConfig
 from dictionary_app.database_handler import DatabaseHandler
 from dictionary_app.history_manager import HistoryManager
 from dictionary_app.text_processor import TextProcessor
+from webui_backend.similarity_matcher import SimilarityMatcher
+
+logger = logging.getLogger(__name__)
 
 try:
     from Levenshtein import ratio as _lev_ratio
@@ -26,10 +30,20 @@ class DictionaryService:
         if not self.db_handler.connect():
             raise RuntimeError(f"Failed to connect to dictionary database: {DictionaryConfig.CURRENT_DB}")
         self.history_manager = HistoryManager()
+        self.similarity_matcher = SimilarityMatcher()
+        self._similarity_index_built = False
 
     def _ensure_connection(self) -> None:
         if not self.db_handler.conn:
             self.db_handler.connect()
+
+    def _build_similarity_index(self) -> None:
+        try:
+            word_explanation_pairs = self.db_handler.get_all_words()
+            if word_explanation_pairs:
+                self.similarity_matcher.build_index(word_explanation_pairs)
+        except Exception:
+            logger.warning("构建相似度索引时发生异常", exc_info=True)
 
     def search(self, query: str, exact_match: bool = False) -> Dict[str, Any]:
         normalized_query = (query or "").strip()
@@ -37,6 +51,7 @@ class DictionaryService:
             return {
                 "ok": False, "query": "", "exact_match": bool(exact_match),
                 "is_phrase": False, "sections": [], "message": "请输入要查询的词。",
+                "suggestions": [],
             }
         with self._lock:
             self._ensure_connection()
@@ -76,11 +91,18 @@ class DictionaryService:
                 if chinese_entries:
                     sections.append({"title": "中文 -> 爱丽丝语", "kind": "chinese", "entries": chinese_entries})
             self.history_manager.add_record(normalized_query)
+            suggestions: List[Dict[str, Any]] = []
+            if not sections and not is_phrase:
+                if not self._similarity_index_built:
+                    self._build_similarity_index()
+                    self._similarity_index_built = True
+                suggestions = self.similarity_matcher.find_similar(normalized_query)
             return {
                 "ok": True, "query": normalized_query, "exact_match": bool(exact_match),
                 "is_phrase": is_phrase, "sections": sections,
                 "history": self.history_manager.get_history(),
                 "message": "" if sections else f"未找到 '{normalized_query}' 的匹配结果。",
+                "suggestions": suggestions,
             }
 
     def get_history(self) -> List[str]:

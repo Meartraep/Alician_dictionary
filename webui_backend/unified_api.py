@@ -41,6 +41,9 @@ class UnifiedAPI:
         self._main_window = None
         self._detached_windows: Dict[str, Any] = {}
         self._closed = False
+        self.dictionary_service: Any = None
+        self.writing_service: Any = None
+        self.dbmanager_service: Any = None
         _Event = threading.Event
         self._tasks: "queue.Queue[Optional[Tuple[Any, Tuple[Any, ...], Dict[str, Any], Dict[str, Any], _Event]]]" = queue.Queue()
         self._worker_ready = threading.Event()
@@ -49,11 +52,25 @@ class UnifiedAPI:
             target=self._worker_loop, name="UnifiedWebUIWorker", daemon=True)
         self._worker_thread.start()
 
+    def _resolve_dbmanager_db_path(self) -> Path:
+        if not getattr(sys, 'frozen', False):
+            return PROJECT_ROOT / "translated.db"
+
+        primary_db_path = self.data_root / "translated.db"
+        if primary_db_path.exists():
+            return primary_db_path
+
+        fallback_db_path = PROJECT_ROOT / "translated.db"
+        if fallback_db_path.exists():
+            return fallback_db_path
+
+        return primary_db_path
+
     def _worker_loop(self) -> None:
         try:
             self.dictionary_service = DictionaryService()
             self.writing_service = WritingAssistantService()
-            db_path = str(self.data_root / "translated.db")
+            db_path = str(self._resolve_dbmanager_db_path())
             self.dbmanager_service = DatabaseManagerService(db_path)
         except Exception as exc:
             self._worker_failed = exc
@@ -159,40 +176,78 @@ class UnifiedAPI:
         win.events.closed += on_closed
         return {"ok": True, "message": "已打开独立窗口。"}
 
+    def _clear_native_window_on_top(self, app_id: str) -> None:
+        with self._lock:
+            win = self._detached_windows.get(app_id)
+        if win is None:
+            return
+        try:
+            win.on_top = False
+        except Exception:
+            pass
+
+    def focus_native_window(self, app_id: str) -> Dict[str, Any]:
+        app = app_id if app_id in VALID_TABS else ""
+        if not app:
+            return {"ok": False, "message": "未知模块。"}
+        with self._lock:
+            existing = self._detached_windows.get(app)
+        if existing is None:
+            return {"ok": False, "message": "窗口未打开。"}
+        try:
+            try:
+                existing.restore()
+            except Exception:
+                pass
+            existing.show()
+            try:
+                existing.on_top = True
+                timer = threading.Timer(1.2, self._clear_native_window_on_top, args=(app,))
+                timer.daemon = True
+                timer.start()
+            except Exception:
+                pass
+            return {"ok": True, "message": "窗口已前置。"}
+        except Exception as exc:
+            return {"ok": False, "message": f"前置窗口失败: {exc}"}
+
     def dictionary_search(self, query: str, exact_match: bool = False) -> Dict[str, Any]:
-        return self._invoke(self.dictionary_service.search, query, bool(exact_match))
+        return self._invoke(lambda: self.dictionary_service.search(query, bool(exact_match)))
 
     def dictionary_history(self) -> List[str]:
-        return self._invoke(self.dictionary_service.get_history)
+        return self._invoke(lambda: self.dictionary_service.get_history())
 
     def dictionary_examples(self, word: str) -> Dict[str, Any]:
-        return self._invoke(self.dictionary_service.get_examples, word)
+        return self._invoke(lambda: self.dictionary_service.get_examples(word))
 
     def dictionary_update_lyric(self, title: str, album: str, lyric: str) -> Dict[str, Any]:
-        ret = self._invoke(self.dictionary_service.update_song_lyric, title, album, lyric)
+        ret = self._invoke(lambda: self.dictionary_service.update_song_lyric(title, album, lyric))
         if ret and ret.get("ok") and self.app_settings is not None:
             self.app_settings.mark_local_database_changed()
         return ret
 
     def writing_check_text(self, text: str) -> Dict[str, Any]:
-        return self._invoke(self.writing_service.check_text, text)
+        return self._invoke(lambda: self.writing_service.check_text(text))
 
     def writing_get_settings(self) -> Dict[str, Any]:
-        return self._invoke(self.writing_service.get_settings)
+        return self._invoke(lambda: self.writing_service.get_settings())
 
     def writing_save_settings(self, settings: Dict[str, Any]) -> Dict[str, Any]:
-        return self._invoke(self.writing_service.save_settings, settings or {})
+        return self._invoke(lambda: self.writing_service.save_settings(settings or {}))
 
     def writing_lookup(self, selected_text: str) -> Dict[str, Any]:
-        return self._invoke(self.writing_service.lookup_explanations, selected_text)
+        return self._invoke(lambda: self.writing_service.lookup_explanations(selected_text))
 
     def writing_query_dictionary(self, query: str, exact_match: bool = False) -> Dict[str, Any]:
-        return self._invoke(self.dictionary_service.search, query, bool(exact_match))
+        return self._invoke(lambda: self.dictionary_service.search(query, bool(exact_match)))
 
     def app_get_settings(self) -> Dict[str, Any]:
         if self.app_settings is None:
             return {"auto_update": True, "auto_update_status": "", "alic_font": False, "alic_hover_enabled": True, "alic_hover_delay": 300, "update_check_status": "就绪", "data_dir": ""}
-        return self.app_settings.get_public_settings()
+        public = self.app_settings.get_public_settings()
+        if not getattr(sys, 'frozen', False):
+            public["data_dir"] = ""
+        return public
 
     def app_save_settings(self, settings: Dict[str, Any]) -> Dict[str, Any]:
         if self.app_settings is None:
@@ -207,13 +262,17 @@ class UnifiedAPI:
         if "alic_hover_delay" in s:
             delay = max(0, min(1000, int(s["alic_hover_delay"])))
             self.app_settings.settings["alic_hover_delay"] = delay
-        if "data_dir" in s:
+        if getattr(sys, 'frozen', False) and "data_dir" in s:
             self.app_settings.settings["data_dir"] = str(s["data_dir"] or "").strip()
         self.app_settings.save()
         public = self.app_settings.get_public_settings()
+        if not getattr(sys, 'frozen', False):
+            public["data_dir"] = ""
         return {"ok": True, "message": "设置已保存。", "settings": public}
 
     def app_select_data_dir(self) -> Dict[str, Any]:
+        if not getattr(sys, 'frozen', False):
+            return {"ok": False, "message": "源码运行模式下固定使用项目根目录，不支持设置数据目录。"}
         root = tk.Tk()
         root.withdraw()
         try:
@@ -256,7 +315,7 @@ class UnifiedAPI:
                     pass
 
     def app_open_data_dir(self) -> Dict[str, Any]:
-        resolved = str(self.data_root)
+        resolved = str(self.data_root if getattr(sys, 'frozen', False) else PROJECT_ROOT)
         if not os.path.isdir(resolved):
             return {"ok": False, "message": "数据目录不存在。"}
         try:
@@ -307,32 +366,32 @@ class UnifiedAPI:
         return self._invoke(self._writing_export_text_impl, content, suggested_name)
 
     def dbmanager_get_tables(self) -> List[str]:
-        return self._invoke(self.dbmanager_service.get_tables)
+        return self._invoke(lambda: self.dbmanager_service.get_tables())
 
     def dbmanager_get_fields(self, table_name: str) -> List[str]:
-        return self._invoke(self.dbmanager_service.get_fields, table_name)
+        return self._invoke(lambda: self.dbmanager_service.get_fields(table_name))
 
     def dbmanager_get_all_data(self, table_name: str) -> Dict[str, Any]:
-        return self._invoke(self.dbmanager_service.get_all_data, table_name)
+        return self._invoke(lambda: self.dbmanager_service.get_all_data(table_name))
 
     def dbmanager_search(self, table_name: str, keyword: str) -> Dict[str, Any]:
-        return self._invoke(self.dbmanager_service.search_records, table_name, keyword)
+        return self._invoke(lambda: self.dbmanager_service.search_records(table_name, keyword))
 
     def dbmanager_add_record(self, table_name: str, values: Dict[str, str]) -> Dict[str, Any]:
-        ret = self._invoke(self.dbmanager_service.add_record, table_name, values)
+        ret = self._invoke(lambda: self.dbmanager_service.add_record(table_name, values))
         if ret and ret.get("ok") and self.app_settings is not None:
             self.app_settings.mark_local_database_changed()
         return ret
 
     def dbmanager_update_record(self, table_name: str, record_id: int,
                                 values: Dict[str, str]) -> Dict[str, Any]:
-        ret = self._invoke(self.dbmanager_service.update_record, table_name, record_id, values)
+        ret = self._invoke(lambda: self.dbmanager_service.update_record(table_name, record_id, values))
         if ret and ret.get("ok") and self.app_settings is not None:
             self.app_settings.mark_local_database_changed()
         return ret
 
     def dbmanager_batch_update(self, table_name: str, edits: List[Dict[str, Any]]) -> Dict[str, Any]:
-        ret = self._invoke(self.dbmanager_service.batch_update, table_name, edits)
+        ret = self._invoke(lambda: self.dbmanager_service.batch_update(table_name, edits))
         if ret and ret.get("ok"):
             try:
                 timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -351,17 +410,17 @@ class UnifiedAPI:
         return ret
 
     def dbmanager_delete_records(self, table_name: str, ids: List[int]) -> Dict[str, Any]:
-        ret = self._invoke(self.dbmanager_service.delete_records, table_name, ids)
+        ret = self._invoke(lambda: self.dbmanager_service.delete_records(table_name, ids))
         if ret and ret.get("ok") and self.app_settings is not None:
             self.app_settings.mark_local_database_changed()
         return ret
 
     def dbmanager_global_search(self, keyword: str) -> Dict[str, Any]:
-        return self._invoke(self.dbmanager_service.global_search, keyword)
+        return self._invoke(lambda: self.dbmanager_service.global_search(keyword))
 
     def dbmanager_global_replace(self, keyword: str, replacement: str,
                                  match_records: List[Dict[str, Any]]) -> Dict[str, Any]:
-        ret = self._invoke(self.dbmanager_service.global_replace, keyword, replacement, match_records)
+        ret = self._invoke(lambda: self.dbmanager_service.global_replace(keyword, replacement, match_records))
         if ret and ret.get("ok") and self.app_settings is not None:
             self.app_settings.mark_local_database_changed()
         return ret
@@ -405,16 +464,36 @@ class UnifiedAPI:
         try:
             if getattr(sys, 'frozen', False):
                 subprocess.Popen(
-                    [str(sys.executable), '--db-exporter'],
+                    [str(sys.executable), '--db-exporter', 'xlsx'],
                 )
             else:
                 subprocess.Popen(
-                    [str(sys.executable), str(exporter_path)],
+                    [str(sys.executable), str(exporter_path), 'xlsx'],
                     cwd=str(PROJECT_ROOT),
                 )
             return {"ok": True, "message": "导出工具已启动。"}
         except Exception as exc:
             return {"ok": False, "message": f"启动导出工具失败: {exc}"}
+
+    def dbmanager_export_csv(self) -> Dict[str, Any]:
+        import subprocess
+
+        exporter_path = PROJECT_ROOT / "db_exporter.py"
+        if not getattr(sys, 'frozen', False) and not exporter_path.exists():
+            return {"ok": False, "message": "导出工具 db_exporter.py 不存在。"}
+        try:
+            if getattr(sys, 'frozen', False):
+                subprocess.Popen(
+                    [str(sys.executable), '--db-exporter', 'csv'],
+                )
+            else:
+                subprocess.Popen(
+                    [str(sys.executable), str(exporter_path), 'csv'],
+                    cwd=str(PROJECT_ROOT),
+                )
+            return {"ok": True, "message": "CSV导出工具已启动。"}
+        except Exception as exc:
+            return {"ok": False, "message": f"启动CSV导出工具失败: {exc}"}
 
     def close(self) -> Dict[str, Any]:
         self.shutdown()

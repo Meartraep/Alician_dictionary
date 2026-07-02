@@ -31,6 +31,14 @@ function bindGlobal() {
     if (e.target === els.modalRoot) closeModal();
   });
   window.addEventListener("storage", function (e) {
+    if (e.key === STORAGE_KEYS.dictSnapshot && state.isNativeDetached && state.nativeAppId === "dictionary") {
+      restoreModuleSnapshot("dictionary", true);
+      return;
+    }
+    if (e.key === STORAGE_KEYS.writingSnapshot && state.isNativeDetached && state.nativeAppId === "writing") {
+      restoreModuleSnapshot("writing", false);
+      return;
+    }
     if (state.isNativeDetached) return;
     if (e.key === STORAGE_KEYS.writingSnapshot && state.apps.writing.detached) {
       restoreModuleSnapshot("writing", false);

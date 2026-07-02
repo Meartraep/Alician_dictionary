@@ -52,7 +52,6 @@ function _dbmDrawTable(editRowId) {
   if (!wrap) return;
 
   var html = '<table class="data-table"><thead><tr>';
-  html += '<th style="width:40px"><input type="checkbox" id="dbmSelectAll" /></th>';
   for (var i = 0; i < fields.length; i++) html += '<th>' + escapeHtml(fields[i]) + '</th>';
   html += '</tr></thead><tbody>';
 
@@ -61,7 +60,6 @@ function _dbmDrawTable(editRowId) {
     var rowId = _dbmRowId(row);
     var selected = rowId && state.dbmanager.selectedIds.has(rowId);
     html += '<tr class="' + (selected ? 'selected' : '') + '" data-row-id="' + escapeHtml(rowId) + '">';
-    html += '<td><input type="checkbox" ' + (selected ? 'checked' : '') + ' /></td>';
     for (var j = 0; j < fields.length; j++) {
       var f = fields[j];
       if (rowId === editRowId && f !== "id" && f !== "rowid") {
@@ -85,32 +83,10 @@ function _dbmDrawTable(editRowId) {
   html += '</tbody></table>';
   wrap.innerHTML = html;
 
-  var selectAllCb = wrap.querySelector("#dbmSelectAll");
-  var rowCbs = wrap.querySelectorAll("tbody input[type=checkbox]");
-  if (selectAllCb) {
-    selectAllCb.checked = rowCbs.length > 0 && Array.from(rowCbs).every(function (cb) { return cb.checked; });
-    selectAllCb.addEventListener("change", function () {
-      var check = selectAllCb.checked;
-      rowCbs.forEach(function (cb) {
-        cb.checked = check;
-        var rid = cb.closest("tr")?.dataset.rowId;
-        if (rid) { if (check) state.dbmanager.selectedIds.add(rid); else state.dbmanager.selectedIds.delete(rid); }
-      });
-      syncDbmanagerRowSelection();
-    });
-  }
-  rowCbs.forEach(function (cb) {
-    cb.addEventListener("change", function () {
-      var rid = cb.closest("tr")?.dataset.rowId;
-      if (rid) { if (cb.checked) state.dbmanager.selectedIds.add(rid); else state.dbmanager.selectedIds.delete(rid); }
-      syncDbmanagerRowSelection();
-    });
-  });
-
   var rows = wrap.querySelectorAll("tbody tr");
   rows.forEach(function (tr) {
     tr.addEventListener("click", function (e) {
-      if (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA") return;
+      if (e.target.tagName === "TEXTAREA") return;
       if (state.dbmanager.editingRowId) return;
       var rid = tr.dataset.rowId;
       if (!rid) return;
@@ -150,12 +126,9 @@ function syncDbmanagerRowSelection() {
   var rows = els.dbmDataTable?.querySelectorAll("tbody tr");
   if (!rows) return;
   rows.forEach(function (tr) {
-    var cb = tr.querySelector("input[type=checkbox]");
-    if (cb) tr.classList.toggle("selected", cb.checked);
+    var rid = tr.dataset.rowId;
+    tr.classList.toggle("selected", Boolean(rid) && state.dbmanager.selectedIds.has(rid));
   });
-  var scb = els.dbmDataTable?.querySelector("#dbmSelectAll");
-  var rcs = els.dbmDataTable?.querySelectorAll("tbody input[type=checkbox]");
-  if (scb) scb.checked = rcs && rcs.length > 0 && Array.from(rcs).every(function (c) { return c.checked; });
 }
 
 function getDbmanagerSelectedIds() {
@@ -293,11 +266,11 @@ function renderGlobalResults() {
   if (!results || !results.length) { els.dbmGlobalStatus.textContent = "无结果"; return; }
   els.dbmGlobalStatus.textContent = "找到 " + results.length + " 条结果";
   var html = '<table class="global-results-table"><thead><tr>';
-  html += '<th><input type="checkbox" id="dbmGlobalSelectAll" /></th>';
   html += '<th>表</th><th>ID</th><th>字段</th><th>值</th></tr></thead><tbody>';
   for (var i = 0; i < results.length; i++) {
     var r = results[i];
-    html += '<tr data-gidx="' + i + '"><td><input type="checkbox" /></td>';
+    var selected = state.dbmanager.globalSelectedIndexes.has(i);
+    html += '<tr data-gidx="' + i + '" class="' + (selected ? 'selected' : '') + '">';
     html += '<td>' + escapeHtml(r.table || "") + '</td>';
     html += '<td>' + escapeHtml(String(r.id ?? "")) + '</td>';
     html += '<td>' + escapeHtml(r.field || "") + '</td>';
@@ -313,13 +286,35 @@ function renderGlobalResults() {
     els.dbmGlobalStatus.parentElement.after(container);
   }
   container.innerHTML = html;
-  var scb = container.querySelector("#dbmGlobalSelectAll");
-  var rcb = container.querySelectorAll("tbody input[type=checkbox]");
-  if (scb) {
-    scb.addEventListener("change", function () {
-      rcb.forEach(function (cb) { cb.checked = scb.checked; });
+  var rows = container.querySelectorAll("tbody tr");
+  rows.forEach(function (tr) {
+    tr.addEventListener("click", function (e) {
+      var idx = parseInt(tr.dataset.gidx, 10);
+      if (isNaN(idx)) return;
+      if (e.ctrlKey || e.metaKey) {
+        if (state.dbmanager.globalSelectedIndexes.has(idx)) state.dbmanager.globalSelectedIndexes.delete(idx);
+        else state.dbmanager.globalSelectedIndexes.add(idx);
+      } else {
+        state.dbmanager.globalSelectedIndexes.clear();
+        state.dbmanager.globalSelectedIndexes.add(idx);
+      }
+      renderGlobalResults();
     });
-  }
+    tr.addEventListener("dblclick", async function () {
+      var idx = parseInt(tr.dataset.gidx, 10);
+      var result = !isNaN(idx) ? state.dbmanager.globalResults[idx] : null;
+      if (!result?.table) return;
+      await loadDbmanagerTable(result.table);
+      var targetId = result.id != null ? String(result.id) : "";
+      if (targetId) {
+        state.dbmanager.selectedIds.clear();
+        state.dbmanager.selectedIds.add(targetId);
+        syncDbmanagerRowSelection();
+        var targetRow = els.dbmDataTable?.querySelector('tr[data-row-id="' + CSS.escape(targetId) + '"]');
+        if (targetRow) targetRow.scrollIntoView({ block: "center" });
+      }
+    });
+  });
 }
 
 async function dbmanagerGlobalSearch() {
@@ -327,8 +322,24 @@ async function dbmanagerGlobalSearch() {
   if (!kw) { toast("请输入搜索关键词", "warn"); return; }
   try {
     var ret = await callApi("dbmanager_global_search", kw);
-    if (ret?.ok) { state.dbmanager.globalResults = ret.results || []; renderGlobalResults(); }
+    if (ret?.ok) {
+      state.dbmanager.globalResults = ret.results || [];
+      state.dbmanager.globalSelectedIndexes = new Set();
+      renderGlobalResults();
+    }
   } catch (err) { toast("全局搜索失败：" + err.message, "warn"); }
+}
+
+function dbmanagerGlobalSelectAll() {
+  if (!state.dbmanager.globalResults.length) {
+    toast("请先执行全局搜索", "warn");
+    return;
+  }
+  state.dbmanager.globalSelectedIndexes = new Set(
+    state.dbmanager.globalResults.map(function (_, idx) { return idx; })
+  );
+  renderGlobalResults();
+  toast("已全选搜索结果", "info");
 }
 
 async function dbmanagerGlobalReplace() {
@@ -336,17 +347,11 @@ async function dbmanagerGlobalReplace() {
   var rep = (els.dbmReplaceInput?.value || "").trim();
   if (!kw) { toast("请输入查找关键词", "warn"); return; }
   if (!rep) { toast("请输入替换内容", "warn"); return; }
-  var container = document.getElementById("dbmGlobalResults");
-  var rowCbs = container?.querySelectorAll("tbody input[type=checkbox]");
-  if (!rowCbs || !rowCbs.length) { toast("请先执行全局搜索", "warn"); return; }
-  var matchRecords = [];
-  rowCbs.forEach(function (cb) {
-    if (cb.checked) {
-      var tr = cb.closest("tr");
-      var idx = parseInt(tr?.dataset.gidx);
-      if (!isNaN(idx) && state.dbmanager.globalResults[idx]) matchRecords.push(state.dbmanager.globalResults[idx]);
-    }
-  });
+  if (!state.dbmanager.globalResults.length) { toast("请先执行全局搜索", "warn"); return; }
+  var matchRecords = Array.from(state.dbmanager.globalSelectedIndexes)
+    .sort(function (a, b) { return a - b; })
+    .map(function (idx) { return state.dbmanager.globalResults[idx]; })
+    .filter(Boolean);
   if (!matchRecords.length) { toast("请勾选要替换的记录", "warn"); return; }
   if (!confirm('确认将 ' + matchRecords.length + ' 处 "' + kw + '" 替换为 "' + rep + '" 吗？此操作不可撤销。')) return;
   try {
@@ -380,6 +385,7 @@ function bindDbmanagerEvents() {
   els.dbmDiscardBtn.addEventListener("click", dbmanagerDiscardEdits);
   els.dbmCommitBtn.addEventListener("click", dbmanagerCommitEdits);
   els.dbmGlobalSearchBtn.addEventListener("click", dbmanagerGlobalSearch);
+  els.dbmGlobalSelectAllBtn.addEventListener("click", dbmanagerGlobalSelectAll);
   els.dbmReplaceBtn.addEventListener("click", dbmanagerGlobalReplace);
   els.dbmUpdateWordCountBtn.addEventListener("click", async function () {
     try {
@@ -392,6 +398,14 @@ function bindDbmanagerEvents() {
       var ret = await callApi("dbmanager_classify_words");
       toast(ret?.message || "", ret?.ok ? "info" : "warn", 5000);
     } catch (err) { toast("更新失败：" + err.message, "warn", 5000); }
+  });
+  els.dbmExportCsvBtn.addEventListener("click", async function () {
+    try {
+      var ret = await callApi("dbmanager_export_csv");
+      var message = ret?.message || "";
+      if (ret?.ok && ret?.encoding) message += " 编码：" + ret.encoding;
+      toast(message || "导出完成", ret?.ok ? "info" : "warn", 5000);
+    } catch (err) { toast("导出失败：" + err.message, "warn", 5000); }
   });
   els.dbmExportDbBtn.addEventListener("click", async function () {
     try {

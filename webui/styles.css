@@ -320,6 +320,27 @@ button.small {
   background: #fbfdff;
 }
 
+.suggestion-item {
+  border-left: 3px solid var(--active);
+  background: #f6faff;
+}
+
+.suggestion-word-link {
+  display: inline-block;
+  color: var(--active);
+  cursor: pointer;
+  text-decoration: underline;
+  text-decoration-style: dotted;
+  padding: 1px 3px;
+}
+
+.suggestion-word-link:hover {
+  color: #1a5eb8;
+  text-decoration-style: solid;
+  background: #e8f2ff;
+  border-radius: 3px;
+}
+
 .example-source {
   color: var(--muted);
   font-size: 12px;
@@ -932,11 +953,8 @@ body.alic-font .no-alic-font {
 }
 
 .data-table tr.selected td {
-  background: var(--active-soft);
-}
-
-.data-table input[type="checkbox"] {
-  cursor: pointer;
+  background: #cfe3ff;
+  box-shadow: inset 0 1px 0 #9cc1f5, inset 0 -1px 0 #9cc1f5;
 }
 
 .dbmanager-global {
@@ -1037,8 +1055,9 @@ body.alic-font .no-alic-font {
   border-bottom: 1px solid #eef1f5;
 }
 
-.global-results-table input[type="checkbox"] {
-  cursor: pointer;
+.global-results-table tr.selected td {
+  background: #c2dcff;
+  box-shadow: inset 0 1px 0 #8db8f3, inset 0 -1px 0 #8db8f3;
 }
 
 .status-line {

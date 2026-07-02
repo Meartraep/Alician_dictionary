@@ -121,18 +121,49 @@ async function renderLookupToBottom(selectedText) {
     var ret = await callApi("writing_lookup", text);
     if (!ret?.ok) { els.writingExplanation.textContent = ret?.message || "未找到信息。"; return; }
     var expl = (ret.explanations || []).map(function (it) {
+      var pos = String(it.part_of_speech || "").trim();
       return '<div class="result-item"><strong>' + escapeHtml(it.word || "") +
-        '</strong>：' + escapeHtml(it.explanation || "未找到释义") + '</div>';
+        '</strong> <span class="no-alic-font">' + escapeHtml(pos || "-") +
+        '</span> ' + escapeHtml(it.explanation || "未找到释义") +
+        '<div class="result-actions"><button class="small writing-dict-search-btn" type="button" data-word="' +
+        escapeHtml(it.word || "") + '">在词典工具中搜索</button></div></div>';
     }).join("");
     var simil = (ret.similar_words || []).map(function (it) {
+      var pos = String(it.part_of_speech || "").trim();
       return '<div class="result-item">建议：' + escapeHtml(it.word || "") +
-        ' → ' + escapeHtml(it.similar_word || "") + '（相似度 ' + (it.score ?? 0) + '）<br>' +
+        ' → ' + escapeHtml(it.similar_word || "") + ' <span class="no-alic-font">' +
+        escapeHtml(pos || "-") + '</span> （相似度 ' + (it.score ?? 0) + '）<br>' +
         escapeHtml(it.explanation || "") + '</div>';
     }).join("");
     els.writingExplanation.innerHTML = '<div class="explanation-stack">' +
       '<div class="result-section-title">释义与建议</div>' +
       (expl || '<div class="result-item">无释义信息</div>') + simil + '</div>';
   } catch (err) { els.writingExplanation.textContent = "查询失败：" + err.message; }
+}
+
+async function searchWordInDictionaryTool(word) {
+  var query = String(word || "").trim();
+  if (!query) return;
+  saveJson(STORAGE_KEYS.dictSnapshot, { query: query, exact: true });
+
+  if (!state.isNativeDetached && !state.apps.dictionary.detached) {
+    state.activeDocked = "dictionary";
+    renderDockPanels();
+    updateTabVisualState();
+    els.dictQuery.value = query;
+    els.dictExact.checked = true;
+    await runDictionarySearch(query, true);
+    return;
+  }
+
+  try {
+    var ret = await callApi("focus_native_window", "dictionary");
+    if (!ret?.ok) {
+      ret = await callApi("detach_native_window", "dictionary",
+        Math.round(window.screenX + 60), Math.round(window.screenY + 60));
+    }
+    if (!ret?.ok) toast(ret?.message || "打开词典窗口失败", "warn", 3200);
+  } catch (err) { toast("打开词典窗口失败：" + err.message, "warn", 3200); }
 }
 
 function renderLowstatDetailsToBottom(item) {
@@ -357,6 +388,11 @@ function bindWritingEvents() {
     selectSidebarWord(item);
     if (item.type === "lowstat") renderLowstatDetailsToBottom(item);
     else renderLookupToBottom(item.display);
+  });
+  els.writingExplanation.addEventListener("click", function (e) {
+    var btn = e.target.closest(".writing-dict-search-btn[data-word]");
+    if (!btn) return;
+    searchWordInDictionaryTool(btn.dataset.word || "");
   });
   els.writingImportBtn.addEventListener("click", function () {
     els.fileLoader.value = ""; els.fileLoader.click();

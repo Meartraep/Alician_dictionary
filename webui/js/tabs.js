@@ -16,9 +16,9 @@ function bindBaseElements() {
     "dbmTableList", "dbmRefreshBtn", "dbmSearchInput", "dbmSearchBtn",
     "dbmShowAllBtn", "dbmAddBtn", "dbmDeleteBtn",
     "dbmDiscardBtn", "dbmCommitBtn",
-    "dbmUpdateWordCountBtn", "dbmClassifyWordsBtn", "dbmExportDbBtn",
+    "dbmUpdateWordCountBtn", "dbmClassifyWordsBtn", "dbmExportCsvBtn", "dbmExportDbBtn",
     "dbmDataTable", "dbmStatus", "dbmGlobalSearchInput",
-    "dbmGlobalSearchBtn", "dbmReplaceInput", "dbmReplaceBtn", "dbmGlobalStatus",
+    "dbmGlobalSearchBtn", "dbmGlobalSelectAllBtn", "dbmReplaceInput", "dbmReplaceBtn", "dbmGlobalStatus",
     "fileLoader",
   ];
   for (var i = 0; i < ids.length; i++) els[ids[i]] = document.getElementById(ids[i]);

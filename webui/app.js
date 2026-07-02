@@ -566,7 +566,23 @@
   function renderDictionaryResults(payload) {
     const sections = payload?.sections || [];
     if (!sections.length) {
-      els.dictResults.innerHTML = `<div class="result-item">${escapeHtml(payload?.message || "未找到结果")}</div>`;
+      let html = `<div class="result-item">${escapeHtml(payload?.message || "未找到结果")}</div>`;
+      const suggestions = payload?.suggestions;
+      if (suggestions && suggestions.length) {
+        html += '<section class="result-section">' +
+          '<div class="result-section-title">词义相似词推荐</div>' +
+          suggestions.map((item) => {
+            const wordLinks = (item.words || []).map((w) =>
+              `<span class="suggestion-word-link" data-query="${escapeHtml(w)}" title="点击搜索此词">${escapeHtml(w)}</span>`
+            ).join(" ");
+            return `<div class="result-item suggestion-item">
+              <div class="result-main"><span class="no-alic-font">${escapeHtml(item.explanation || "")}</span></div>
+              <div class="result-meta">相似度: ${item.similarity != null ? (item.similarity * 100).toFixed(1) + '%' : 'N/A'}</div>
+              <div class="result-meta">对应爱丽丝语: ${wordLinks}</div>
+            </div>`;
+          }).join("") + '</section>';
+      }
+      els.dictResults.innerHTML = html;
       renderDictionaryHistory(payload?.history || []);
       return;
     }
@@ -798,8 +814,16 @@
 
     els.dictResults.addEventListener("click", (e) => {
       const btn = e.target.closest(".dict-example-btn[data-word]");
-      if (!btn) return;
-      loadDictionaryExamples(btn.dataset.word || "");
+      if (btn) {
+        loadDictionaryExamples(btn.dataset.word || "");
+        return;
+      }
+      const sugLink = e.target.closest(".suggestion-word-link[data-query]");
+      if (sugLink) {
+        const query = sugLink.dataset.query || "";
+        els.dictQuery.value = query;
+        runDictionarySearch(query);
+      }
     });
 
     els.dictExamples.addEventListener("click", (e) => {

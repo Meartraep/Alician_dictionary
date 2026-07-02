@@ -196,6 +196,13 @@
       var browseBtn = document.getElementById("browseBtn");
       var dataDirInput = document.getElementById("dataDirInput");
       var dirHint = document.getElementById("dirHint");
+      var dirSection = document.querySelector(".welcome-section:last-of-type");
+      var params = new URLSearchParams((window.location.hash || "").replace(/^#/, ""));
+      var allowDataDir = params.get("allowDataDir") === "1";
+
+      if (!allowDataDir && dirSection) {
+        dirSection.style.display = "none";
+      }
 
       function closeWindow() {
         if (window.pywebview && window.pywebview.api) {
@@ -206,7 +213,7 @@
       closeBtn.addEventListener("click", closeWindow);
 
       enterBtn.addEventListener("click", function () {
-        var dir = dataDirInput.value.trim();
+        var dir = allowDataDir ? dataDirInput.value.trim() : "";
         if (window.pywebview && window.pywebview.api) {
           window.pywebview.api.set_data_dir(dir);
           window.pywebview.api.close();
@@ -214,6 +221,7 @@
       });
 
       browseBtn.addEventListener("click", async function () {
+        if (!allowDataDir) return;
         if (!window.pywebview || !window.pywebview.api) return;
         browseBtn.disabled = true;
         try {
