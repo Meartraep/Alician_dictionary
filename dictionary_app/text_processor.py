@@ -1,12 +1,12 @@
-import os
 import re
-import sys
 import tkinter as tk
 from tkinter import scrolledtext
 from typing import List, Optional, Tuple
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from config import Config
+try:
+    from .config import Config
+except ImportError:
+    from config import Config
 
 
 class TextProcessor:

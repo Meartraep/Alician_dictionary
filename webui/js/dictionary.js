@@ -69,25 +69,12 @@ function renderDictionaryResults(payload) {
   if (!sections.length) {
     var html = '<div class="result-item">' +
       escapeHtml(payload?.message || "未找到结果") + '</div>';
-    var suggestions = payload?.suggestions;
-    if (suggestions && suggestions.length) {
-      html += '<section class="result-section">' +
-        '<div class="result-section-title">词义相似词推荐</div>' +
-        suggestions.map(function (item) {
-          var wordLinks = (item.words || []).map(function (w) {
-            return '<span class="suggestion-word-link" data-query="' +
-              escapeHtml(w) + '" title="点击搜索此词">' + escapeHtml(w) + '</span>';
-          }).join(" ");
-          return '<div class="result-item suggestion-item">' +
-            '<div class="result-main"><span class="no-alic-font">' +
-            escapeHtml(item.explanation || "") + '</span></div>' +
-            '<div class="result-meta">相似度: ' + (item.similarity != null ?
-              (item.similarity * 100).toFixed(1) + '%' : 'N/A') + '</div>' +
-            '<div class="result-meta">对应爱丽丝语: ' + wordLinks + '</div>' +
-            '</div>';
-        }).join("") + '</section>';
-    }
+    html += renderDictionarySuggestions(payload?.suggestions);
     els.dictResults.innerHTML = html;
+    if (payload?.context_examples) {
+      state.dictionary.currentExamplesPayload = payload.context_examples;
+      renderDictionaryExamples(payload.context_examples);
+    }
     renderDictionaryHistory(payload?.history || []);
     return;
   }
@@ -106,8 +93,31 @@ function renderDictionaryResults(payload) {
     return '<section class="result-section">' +
       '<div class="result-section-title">' + escapeHtml(sec.title || "") + '</div>' +
       rows + '</section>';
-  }).join("");
+  }).join("") + renderDictionarySuggestions(payload?.suggestions);
+  if (payload?.context_examples?.examples?.length) {
+    state.dictionary.currentExamplesPayload = payload.context_examples;
+    renderDictionaryExamples(payload.context_examples);
+  }
   renderDictionaryHistory(payload?.history || []);
+}
+
+function renderDictionarySuggestions(suggestions) {
+  if (!suggestions || !suggestions.length) return "";
+  return '<section class="result-section">' +
+    '<div class="result-section-title">词义相似词推荐</div>' +
+    suggestions.map(function (item) {
+      var wordLinks = (item.words || []).map(function (w) {
+        return '<span class="suggestion-word-link" data-query="' +
+          escapeHtml(w) + '" title="点击搜索此词">' + escapeHtml(w) + '</span>';
+      }).join(" ");
+      return '<div class="result-item suggestion-item">' +
+        '<div class="result-main"><span class="no-alic-font">' +
+        escapeHtml(item.explanation || "") + '</span></div>' +
+        '<div class="result-meta">相似度: ' + (item.similarity != null ?
+          (item.similarity * 100).toFixed(1) + '%' : 'N/A') + '</div>' +
+        '<div class="result-meta">对应爱丽丝语: ' + wordLinks + '</div>' +
+        '</div>';
+    }).join("") + '</section>';
 }
 
 async function loadDictionaryExamples(word) {

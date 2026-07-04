@@ -91,8 +91,23 @@ class DictionaryService:
                 if chinese_entries:
                     sections.append({"title": "中文 -> 爱丽丝语", "kind": "chinese", "entries": chinese_entries})
             self.history_manager.add_record(normalized_query)
+            context_examples: Dict[str, Any] | None = None
             suggestions: List[Dict[str, Any]] = []
             if not sections and not is_phrase:
+                context_examples = self._get_examples_payload(normalized_query)
+                if context_examples.get("examples"):
+                    sections.append({
+                        "title": "上下文命中（词典未收录）",
+                        "kind": "context",
+                        "entries": [{
+                            "word": normalized_query,
+                            "explanation": "词典中未收录该词，但在歌词上下文中找到了匹配。",
+                            "word_class": "未收录词",
+                            "kind": "context",
+                            "count": context_examples.get("total_after", 0),
+                            "variety": len(context_examples.get("song_stats", [])),
+                        }],
+                    })
                 if not self._similarity_index_built:
                     self._build_similarity_index()
                     self._similarity_index_built = True
@@ -101,8 +116,9 @@ class DictionaryService:
                 "ok": True, "query": normalized_query, "exact_match": bool(exact_match),
                 "is_phrase": is_phrase, "sections": sections,
                 "history": self.history_manager.get_history(),
-                "message": "" if sections else f"未找到 '{normalized_query}' 的匹配结果。",
+                "message": "" if sections else f"未搜索到对应单词：'{normalized_query}'。",
                 "suggestions": suggestions,
+                "context_examples": context_examples,
             }
 
     def get_history(self) -> List[str]:
@@ -119,31 +135,34 @@ class DictionaryService:
             }
         with self._lock:
             self._ensure_connection()
-            songs = self.db_handler.find_songs_with_word(normalized_word)
-            examples, song_stats = self._process_and_deduplicate_examples(songs, normalized_word)
-            valid_stats = {k: v for k, v in song_stats.items() if v["before"] > 0}
-            total_before = sum(v["before"] for v in valid_stats.values())
-            total_after = len(examples)
-            dedup_rate = ((total_before - total_after) / total_before * 100) if total_before > 0 else 0
-            payload_examples = []
-            for index, example in enumerate(examples):
-                lyric = example["lyric"]
-                paragraph = example["paragraph"]
-                start_pos, end_pos = TextProcessor.find_paragraph_positions(lyric, paragraph)
-                payload_examples.append({
-                    "id": index, "paragraph": paragraph, "title": example["title"],
-                    "album": example["album"], "lyric": lyric, "start": start_pos, "end": end_pos,
-                })
-            payload_stats = [
-                {"album": album, "title": title, "before": stats["before"], "after": stats["after"]}
-                for (album, title), stats in sorted(valid_stats.items())
-            ]
-            return {
-                "ok": True, "word": normalized_word, "examples": payload_examples,
-                "song_stats": payload_stats, "total_before": total_before, "total_after": total_after,
-                "deduplication_rate": round(dedup_rate, 2),
-                "message": "" if payload_examples else f"未找到包含 '{normalized_word}' 的例句。",
-            }
+            return self._get_examples_payload(normalized_word)
+
+    def _get_examples_payload(self, word: str) -> Dict[str, Any]:
+        songs = self.db_handler.find_songs_with_word(word)
+        examples, song_stats = self._process_and_deduplicate_examples(songs, word)
+        valid_stats = {k: v for k, v in song_stats.items() if v["before"] > 0}
+        total_before = sum(v["before"] for v in valid_stats.values())
+        total_after = len(examples)
+        dedup_rate = ((total_before - total_after) / total_before * 100) if total_before > 0 else 0
+        payload_examples = []
+        for index, example in enumerate(examples):
+            lyric = example["lyric"]
+            paragraph = example["paragraph"]
+            start_pos, end_pos = TextProcessor.find_paragraph_positions(lyric, paragraph)
+            payload_examples.append({
+                "id": index, "paragraph": paragraph, "title": example["title"],
+                "album": example["album"], "lyric": lyric, "start": start_pos, "end": end_pos,
+            })
+        payload_stats = [
+            {"album": album, "title": title, "before": stats["before"], "after": stats["after"]}
+            for (album, title), stats in sorted(valid_stats.items())
+        ]
+        return {
+            "ok": True, "word": word, "examples": payload_examples,
+            "song_stats": payload_stats, "total_before": total_before, "total_after": total_after,
+            "deduplication_rate": round(dedup_rate, 2),
+            "message": "" if payload_examples else f"未找到包含 '{word}' 的例句。",
+        }
 
     def update_song_lyric(self, title: str, album: str, new_lyric: str) -> Dict[str, Any]:
         normalized_title = (title or "").strip()

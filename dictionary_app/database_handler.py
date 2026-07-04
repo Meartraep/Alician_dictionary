@@ -5,7 +5,11 @@ import sqlite3
 import os
 from typing import List, Tuple, Optional
 from tkinter import messagebox
-from config import Config
+
+try:
+    from .config import Config
+except ImportError:
+    from config import Config
 
 
 class DatabaseHandler:

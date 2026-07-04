@@ -200,7 +200,7 @@ class GUIManager:
                 current_exe_dir = os.path.dirname(os.path.abspath(sys.executable))
                 
                 # 查词器可执行文件路径（假设与写作助手在同一目录）
-                dictionary_exe = os.path.join(current_exe_dir, 'dictionary_app_new.exe')
+                dictionary_exe = os.path.join(current_exe_dir, 'Alician_Dictionary.exe')
                 
                 # 检查可执行文件是否存在
                 if os.path.exists(dictionary_exe):
