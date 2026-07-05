@@ -47,7 +47,7 @@ var state = {
     settings: { strict_case: true, max_undo_steps: 100, excluded_words: [] },
     selectedSidebarKey: "", infoPopup: null, isComposing: false,
   },
-  settings: { alicFont: false, alicHoverEnabled: true, alicHoverDelay: 300, dataDir: "" },
+  settings: { alicFont: false, alicHoverEnabled: true, alicHoverDelay: 300 },
 };
 
 var els = {};

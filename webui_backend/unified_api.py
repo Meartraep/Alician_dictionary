@@ -66,12 +66,41 @@ class UnifiedAPI:
 
         return primary_db_path
 
+    def _configure_runtime_paths(self, data_root: Path) -> None:
+        db_path = Path(data_root) / "translated.db"
+        os.environ["ALICIAN_DB_PATH"] = str(db_path)
+        try:
+            from dictionary_app.config import Config as DictionaryConfig
+
+            DictionaryConfig.DB_NAME = str(db_path)
+            DictionaryConfig.CURRENT_DB = str(db_path)
+        except Exception:
+            pass
+        if self.app_settings is not None:
+            self.app_settings.db_path = db_path
+        if self.update_checker is not None and hasattr(self.update_checker, "local_db_path"):
+            self.update_checker.local_db_path = str(db_path)
+
+    def _open_worker_services(self) -> None:
+        self._configure_runtime_paths(self.data_root)
+        self.dictionary_service = DictionaryService()
+        self.writing_service = WritingAssistantService()
+        db_path = str(self._resolve_dbmanager_db_path())
+        self.dbmanager_service = DatabaseManagerService(db_path)
+
+    def _close_worker_services(self) -> None:
+        for svc in ("dictionary_service", "writing_service", "dbmanager_service"):
+            try:
+                current = getattr(self, svc, None)
+                if current is not None:
+                    current.close()
+            except Exception:
+                pass
+            setattr(self, svc, None)
+
     def _worker_loop(self) -> None:
         try:
-            self.dictionary_service = DictionaryService()
-            self.writing_service = WritingAssistantService()
-            db_path = str(self._resolve_dbmanager_db_path())
-            self.dbmanager_service = DatabaseManagerService(db_path)
+            self._open_worker_services()
         except Exception as exc:
             self._worker_failed = exc
             self._worker_ready.set()
@@ -88,11 +117,7 @@ class UnifiedAPI:
                 box["error"] = exc
             finally:
                 done.set()
-        for svc in ("dictionary_service", "writing_service", "dbmanager_service"):
-            try:
-                getattr(self, svc).close()
-            except Exception:
-                pass
+        self._close_worker_services()
 
     def _invoke(self, func: Any, *args: Any, allow_closed: bool = False, **kwargs: Any) -> Any:
         if threading.current_thread() is self._worker_thread:
@@ -125,7 +150,7 @@ class UnifiedAPI:
         except Exception:
             dictionary_history = []
         app_settings = self.app_settings.get_public_settings() if self.app_settings is not None else {
-            "auto_update": True, "auto_update_status": "", "data_dir": ""}
+            "auto_update": True, "auto_update_status": ""}
         return {
             "initial_tab": self.initial_tab, "startup_query": self.startup_query,
             "startup_exact": self.startup_exact, "dictionary_history": dictionary_history,
@@ -243,10 +268,8 @@ class UnifiedAPI:
 
     def app_get_settings(self) -> Dict[str, Any]:
         if self.app_settings is None:
-            return {"auto_update": True, "auto_update_status": "", "alic_font": False, "alic_hover_enabled": True, "alic_hover_delay": 300, "update_check_status": "就绪", "data_dir": ""}
+            return {"auto_update": True, "auto_update_status": "", "alic_font": False, "alic_hover_enabled": True, "alic_hover_delay": 300, "update_check_status": "就绪"}
         public = self.app_settings.get_public_settings()
-        if not getattr(sys, 'frozen', False):
-            public["data_dir"] = ""
         return public
 
     def app_save_settings(self, settings: Dict[str, Any]) -> Dict[str, Any]:
@@ -262,67 +285,9 @@ class UnifiedAPI:
         if "alic_hover_delay" in s:
             delay = max(0, min(1000, int(s["alic_hover_delay"])))
             self.app_settings.settings["alic_hover_delay"] = delay
-        if getattr(sys, 'frozen', False) and "data_dir" in s:
-            self.app_settings.settings["data_dir"] = str(s["data_dir"] or "").strip()
         self.app_settings.save()
         public = self.app_settings.get_public_settings()
-        if not getattr(sys, 'frozen', False):
-            public["data_dir"] = ""
         return {"ok": True, "message": "设置已保存。", "settings": public}
-
-    def app_select_data_dir(self) -> Dict[str, Any]:
-        if not getattr(sys, 'frozen', False):
-            return {"ok": False, "message": "源码运行模式下固定使用项目根目录，不支持设置数据目录。"}
-        root = tk.Tk()
-        root.withdraw()
-        try:
-            root.attributes("-topmost", True)
-        except Exception:
-            pass
-        try:
-            path = filedialog.askdirectory(title="选择数据存储目录")
-        finally:
-            root.destroy()
-        if not path:
-            return {"ok": False, "message": "用户取消选择。"}
-        if self.app_settings is not None:
-            old_root = self.app_settings.last_data_root()
-            self.app_settings.settings["data_dir"] = str(path)
-            new_root = self.app_settings.resolve_data_root(self.data_root)
-            if old_root.resolve() != new_root.resolve():
-                self._migrate_data_files(old_root, new_root)
-            self.app_settings.settings["_last_data_root"] = str(new_root.resolve())
-            self.app_settings.save()
-        return {"ok": True, "path": str(path), "message": "数据目录已设置，文件已自动迁移。"}
-
-    def _migrate_data_files(self, old_root, new_root):
-        if old_root is None or new_root is None:
-            return
-        old_p = Path(old_root)
-        new_p = Path(new_root)
-        if old_p == new_p or not old_p.is_dir():
-            return
-        import shutil
-
-        new_p.mkdir(parents=True, exist_ok=True)
-        for name in ("translated.db", "app_settings.json", "word_checker_config.json",
-                     "search_history.json", "db_update.log", "update_checker.log"):
-            src = old_p / name
-            if src.is_file():
-                try:
-                    shutil.copy2(str(src), str(new_p / name))
-                except (PermissionError, OSError):
-                    pass
-
-    def app_open_data_dir(self) -> Dict[str, Any]:
-        resolved = str(self.data_root if getattr(sys, 'frozen', False) else PROJECT_ROOT)
-        if not os.path.isdir(resolved):
-            return {"ok": False, "message": "数据目录不存在。"}
-        try:
-            os.startfile(resolved)
-            return {"ok": True, "message": "已打开文件资源管理器。"}
-        except Exception as exc:
-            return {"ok": False, "message": f"打开失败: {exc}"}
 
     def app_force_download_update(self) -> Dict[str, Any]:
         if self.update_checker is None:

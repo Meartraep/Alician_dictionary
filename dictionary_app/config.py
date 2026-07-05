@@ -8,6 +8,9 @@ import os
 
 
 def _get_default_db_path():
+    env_db = os.environ.get("ALICIAN_DB_PATH")
+    if env_db:
+        return os.path.abspath(env_db)
     if getattr(sys, 'frozen', False):
         return os.path.join(os.path.dirname(sys.executable), 'translated.db')
     return os.path.abspath(os.path.join(os.path.dirname(__file__), "../translated.db"))

@@ -15,7 +15,9 @@ class UpdateChecker:
         self.github_repo = "Meartraep/Alician_dictionary"
         self.github_file_path = "translated.db"
 
-        if getattr(sys, 'frozen', False):
+        if local_db_path:
+            log_dir = os.path.dirname(os.path.abspath(local_db_path))
+        elif getattr(sys, 'frozen', False):
             log_dir = os.path.dirname(os.path.abspath(sys.executable))
         else:
             log_dir = os.path.dirname(os.path.abspath(__file__))

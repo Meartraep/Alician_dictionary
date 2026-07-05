@@ -21,8 +21,6 @@ class AppSettings:
             "alic_hover_enabled": True,
             "alic_hover_delay": 300,
             "update_check_status": "就绪",
-            "data_dir": "",
-            "_last_data_root": "",
         }
         self.settings = self._load()
         self.detect_local_db_change()
@@ -35,7 +33,9 @@ class AppSettings:
                 loaded = json.load(f)
             data = self.default_settings.copy()
             if isinstance(loaded, dict):
-                data.update(loaded)
+                for key in data:
+                    if key in loaded:
+                        data[key] = loaded[key]
             return data
         except Exception:
             return self.default_settings.copy()
@@ -88,22 +88,7 @@ class AppSettings:
             "alic_hover_enabled": bool(self.settings.get("alic_hover_enabled", True)),
             "alic_hover_delay": int(self.settings.get("alic_hover_delay", 300)),
             "update_check_status": str(self.settings.get("update_check_status") or "就绪"),
-            "data_dir": str(self.settings.get("data_dir") or ""),
         }
-
-    def resolve_data_root(self, fallback: Path) -> Path:
-        val = str(self.settings.get("data_dir") or "").strip()
-        if val:
-            p = Path(val).resolve()
-            if p.exists() or p.parent.exists():
-                return p
-        return Path(fallback)
-
-    def last_data_root(self) -> Path:
-        raw = str(self.settings.get("_last_data_root") or "").strip()
-        if raw:
-            return Path(raw).resolve()
-        return Path(self.settings_path).parent.resolve()
 
     def set_auto_update(self, enabled: bool) -> Dict[str, Any]:
         self.settings["auto_update"] = bool(enabled)

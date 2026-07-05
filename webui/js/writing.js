@@ -256,13 +256,10 @@ function applyAppSettings(settings) {
   state.settings.alicFont = Boolean(settings?.alic_font);
   state.settings.alicHoverEnabled = settings?.alic_hover_enabled != null ? Boolean(settings.alic_hover_enabled) : true;
   state.settings.alicHoverDelay = settings?.alic_hover_delay != null ? Number(settings.alic_hover_delay) || 300 : 300;
-  state.settings.dataDir = String(settings?.data_dir || "");
   if (els.alicFontToggle) els.alicFontToggle.checked = state.settings.alicFont;
   if (els.alicHoverToggle) els.alicHoverToggle.checked = state.settings.alicHoverEnabled;
   if (els.alicHoverDelaySlider) els.alicHoverDelaySlider.value = state.settings.alicHoverDelay;
   if (els.alicHoverDelayLabel) els.alicHoverDelayLabel.textContent = state.settings.alicHoverDelay + " ms";
-  if (els.dataDirInput) els.dataDirInput.value = state.settings.dataDir;
-  if (els.dataDirNote) els.dataDirNote.textContent = state.settings.dataDir ? "自定义数据目录（更改后需重启生效）" : "程序运行时数据的存放位置";
   if (els.updateCheckStatus) els.updateCheckStatus.textContent = String(settings?.update_check_status || "就绪");
   if (els.forceDownloadBtn) {
     var showBtn = String(settings?.update_check_status || "") === "云端版本未变化，无需下载";
@@ -528,37 +525,6 @@ function bindAppSettingsEvents() {
     } catch (err) {
       els.alicHoverDelaySlider.value = state.settings.alicHoverDelay;
       toast("保存设置失败：" + err.message, "warn", 3200);
-    }
-  });
-
-  els.dataDirBrowseBtn.addEventListener("click", async function () {
-    els.dataDirBrowseBtn.disabled = true;
-    try {
-      var ret = await callApi("app_select_data_dir");
-      if (ret?.ok) {
-        els.dataDirInput.value = ret.path;
-        state.settings.dataDir = ret.path;
-        if (els.dataDirNote) els.dataDirNote.textContent = "已设置，文件已自动迁移";
-        toast(ret.message, "info", 4000);
-      } else if (ret?.message) {
-        toast(ret.message, "info");
-      }
-    } catch (err) {
-      toast("选择目录失败：" + err.message, "warn", 3200);
-    } finally {
-      els.dataDirBrowseBtn.disabled = false;
-    }
-  });
-
-  els.dataDirOpenBtn.addEventListener("click", async function () {
-    els.dataDirOpenBtn.disabled = true;
-    try {
-      var ret = await callApi("app_open_data_dir");
-      if (ret?.message) toast(ret.message, ret?.ok ? "info" : "warn");
-    } catch (err) {
-      toast("打开失败：" + err.message, "warn", 3200);
-    } finally {
-      els.dataDirOpenBtn.disabled = false;
     }
   });
 

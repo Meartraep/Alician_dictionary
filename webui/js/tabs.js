@@ -12,7 +12,6 @@ function bindBaseElements() {
     "excludedList", "settingsSaveBtn", "settingsCloseBtn",
     "autoUpdateToggle", "alicFontToggle", "alicHoverToggle", "alicHoverDelaySlider", "alicHoverDelayLabel",
     "checkUpdateBtn", "updateCheckStatus", "forceDownloadBtn",
-    "dataDirInput", "dataDirBrowseBtn", "dataDirOpenBtn", "dataDirNote",
     "dbmTableList", "dbmRefreshBtn", "dbmSearchInput", "dbmSearchBtn",
     "dbmShowAllBtn", "dbmAddBtn", "dbmDeleteBtn",
     "dbmDiscardBtn", "dbmCommitBtn",
