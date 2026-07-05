@@ -44,7 +44,10 @@ var state = {
   dictionary: { currentExamplesPayload: null, historyVisible: false },
   writing: {
     debounceTimer: null, checkSeq: 0, appliedSeq: 0, lastResult: null,
-    settings: { strict_case: true, max_undo_steps: 100, excluded_words: [] },
+    settings: {
+      strict_case: true, max_undo_steps: 100, excluded_words: [],
+      dictionary_format_enabled: false, dictionary_format_separators: [":", "："],
+    },
     selectedSidebarKey: "", infoPopup: null, isComposing: false,
   },
   settings: { alicFont: false, alicHoverEnabled: true, alicHoverDelay: 300 },

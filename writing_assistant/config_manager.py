@@ -13,7 +13,9 @@ class ConfigManager:
             "max_undo_steps": 100, 
             "text_width": 500, 
             "sidebar_width": 260,
-            "excluded_words": []
+            "excluded_words": [],
+            "dictionary_format_enabled": False,
+            "dictionary_format_separators": [":", "："]
         }
         self.config = self.load_config()
     

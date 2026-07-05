@@ -91,6 +91,10 @@ class WritingAssistantService:
                 "strict_case": bool(self.config_manager.get("strict_case", True)),
                 "max_undo_steps": int(self.config_manager.get("max_undo_steps", 100)),
                 "excluded_words": list(self.config_manager.get("excluded_words", [])),
+                "dictionary_format_enabled": bool(self.config_manager.get("dictionary_format_enabled", False)),
+                "dictionary_format_separators": list(
+                    self.config_manager.get("dictionary_format_separators", [":", "："]) or []
+                ),
             }
 
     def save_settings(self, settings: Dict[str, Any]) -> Dict[str, Any]:
@@ -113,9 +117,31 @@ class WritingAssistantService:
                     continue
                 seen.add(word)
                 normalized_excluded.append(word)
+            dictionary_format_enabled = bool(settings.get(
+                "dictionary_format_enabled",
+                self.config_manager.get("dictionary_format_enabled", False)
+            ))
+            separators = settings.get(
+                "dictionary_format_separators",
+                self.config_manager.get("dictionary_format_separators", [":", "："])
+            )
+            if isinstance(separators, str):
+                separators = [part.strip() for part in re.split(r"[\n,，]+", separators)]
+            if not isinstance(separators, list):
+                separators = []
+            normalized_separators = []
+            seen_separators = set()
+            for value in separators:
+                separator = str(value).strip()
+                if not separator or separator in seen_separators:
+                    continue
+                seen_separators.add(separator)
+                normalized_separators.append(separator)
             self.config_manager.set("strict_case", strict_case)
             self.config_manager.set("max_undo_steps", max_undo_steps)
             self.config_manager.set("excluded_words", normalized_excluded)
+            self.config_manager.set("dictionary_format_enabled", dictionary_format_enabled)
+            self.config_manager.set("dictionary_format_separators", normalized_separators)
             self.config_manager.save_config()
             self.reload_known_words()
             return {

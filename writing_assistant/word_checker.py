@@ -3,6 +3,7 @@
 # 协议：CC BY-NC 4.0 | 禁止商用，改编需保留署名
 import re
 import logging
+from difflib import SequenceMatcher
 
 logger = logging.getLogger(__name__)
 
@@ -12,6 +13,29 @@ class WordChecker:
     # 预编译正则表达式
     WORD_PATTERN = re.compile(r"\b[a-zA-Z]+\b")  # 匹配单词的正则表达式
     PHRASE_PATTERN = re.compile(r"\b[a-zA-Z]+(?:\s+[a-zA-Z]+)+\b")  # 匹配词组的正则表达式
+    CONTEXT_RADIUS = 96
+    MIN_CONTEXT_WORDS_FOR_ALICIAN = 4
+    DEFAULT_DEFINITION_SEPARATORS = (":", "：")
+    COMMON_FOREIGN_WORDS = {
+        "a", "able", "about", "above", "after", "again", "against", "all", "almost",
+        "along", "already", "also", "although", "always", "am", "among", "an", "and",
+        "another", "any", "are", "around", "as", "ask", "at", "away", "back", "be",
+        "because", "been", "before", "being", "between", "both", "but", "by", "can",
+        "cannot", "could", "day", "did", "do", "does", "done", "down", "during", "each",
+        "either", "else", "even", "ever", "every", "few", "find", "first", "for", "from",
+        "get", "give", "go", "good", "got", "had", "has", "have", "he", "her", "here",
+        "hers", "him", "his", "how", "however", "i", "if", "in", "into", "is", "it",
+        "its", "just", "know", "last", "let", "like", "long", "look", "made", "make",
+        "many", "may", "me", "might", "more", "most", "much", "must", "my", "never",
+        "new", "no", "nor", "not", "now", "of", "off", "on", "once", "one", "only",
+        "or", "other", "our", "out", "over", "own", "people", "put", "said", "same",
+        "say", "see", "she", "should", "since", "so", "some", "still", "such", "take",
+        "than", "that", "the", "their", "them", "then", "there", "these", "they",
+        "thing", "this", "those", "through", "time", "to", "too", "under", "until",
+        "up", "us", "use", "very", "want", "was", "way", "we", "well", "were", "what",
+        "when", "where", "which", "while", "who", "why", "will", "with", "would", "you",
+        "your"
+    }
     
     def __init__(self, root, text_area, highlight_manager, config_manager):
         self.root = root
@@ -32,6 +56,8 @@ class WordChecker:
         
         # 存储匹配到的词组位置，用于避免重复检查
         self._matched_phrases = set()
+        self._alician_shape_cache = None
+        self._close_alician_neighbor_cache = {}
     
     def schedule_check(self, event=None):
         """触发单词检查，带防抖机制"""
@@ -161,6 +187,9 @@ class WordChecker:
             phrase_candidate = match.group()
             start = match.start()
             end = match.end()
+
+            if self._is_definition_region(text, start):
+                continue
             
             # 检查候选词组是否在已知词组中
             if self.config_manager.get("strict_case"):
@@ -201,6 +230,9 @@ class WordChecker:
             word = match.group()
             start = match.start()
             end = match.end()
+
+            if self._is_definition_region(text, start):
+                continue
             
             # 检查单词是否在已知词组中
             if self._is_word_in_phrase(start, end, matched_phrases):
@@ -217,6 +249,8 @@ class WordChecker:
             is_known, key_for_stats, map_key = self.highlight_manager.check_word_status(word)
             
             if not is_known:
+                if self._should_ignore_foreign_word(word, text, start, end):
+                    continue
                 # 未知单词
                 tags_to_add["unknown"].append((start_pos, end_pos))
                 self.highlight_manager.handle_unknown_word(word, start, map_key)
@@ -348,6 +382,9 @@ class WordChecker:
             # 计算全局位置
             global_start = line_start_pos + word_start
             global_end = line_start_pos + word_end
+
+            if self._is_definition_region(full_text, global_start):
+                continue
             
             # 检查候选词组是否在已知词组中
             if self.config_manager.get("strict_case"):
@@ -405,6 +442,10 @@ class WordChecker:
     
     def _process_single_word(self, word, start_pos, end_pos, global_start, tags_to_add):
         """处理单个单词，返回是否为未知单词"""
+        full_text = self.text_area.get("1.0", "end")
+        if self._is_definition_region(full_text, global_start):
+            return False
+
         # 检查单词是否在排除项中
         excluded_words = self.config_manager.get("excluded_words", [])
         if word in excluded_words:
@@ -413,6 +454,8 @@ class WordChecker:
         is_known, key_for_stats, map_key = self.highlight_manager.check_word_status(word)
         
         if not is_known:
+            if self._should_ignore_foreign_word(word, full_text, global_start, global_start + len(word)):
+                return False
             # 未知单词
             tags_to_add["unknown"].append((start_pos, end_pos))
             self.highlight_manager.update_highlight_map_unknown(map_key, word, global_start)
@@ -432,6 +475,154 @@ class WordChecker:
             if low_reasons:
                 tags_to_add["lowstat"].append((start_pos, end_pos))
                 self.highlight_manager.update_highlight_map_lowstat(map_key, word, global_start, low_reasons)
+
+    def _normalize_word(self, word):
+        return str(word or "").lower()
+
+    def _is_definition_region(self, text, start):
+        """Treat the right side of a word-list separator as explanatory text."""
+        if not self.config_manager.get("dictionary_format_enabled", False):
+            return False
+        separators = self.config_manager.get(
+            "dictionary_format_separators",
+            list(self.DEFAULT_DEFINITION_SEPARATORS)
+        )
+        if isinstance(separators, str):
+            separators = [separators]
+        separators = [str(separator) for separator in (separators or []) if str(separator)]
+        if not separators:
+            return False
+        line_start = text.rfind("\n", 0, start) + 1
+        prefix = text[line_start:start]
+        return any(separator in prefix for separator in separators)
+
+    def _get_alician_shape_data(self):
+        """Build lightweight orthography hints from the loaded Alician dictionary."""
+        if self._alician_shape_cache is not None:
+            return self._alician_shape_cache
+
+        words = [self._normalize_word(w) for w in self.highlight_manager.known_words if w]
+        words = [w for w in words if self.WORD_PATTERN.fullmatch(w)]
+        bigrams = set()
+        trigrams = set()
+        suffixes = set()
+        prefixes = set()
+        for word in words:
+            for i in range(max(0, len(word) - 1)):
+                bigrams.add(word[i:i + 2])
+            for i in range(max(0, len(word) - 2)):
+                trigrams.add(word[i:i + 3])
+            if len(word) >= 3:
+                prefixes.add(word[:3])
+                suffixes.add(word[-3:])
+            elif word:
+                prefixes.add(word)
+                suffixes.add(word)
+
+        self._alician_shape_cache = {
+            "bigrams": bigrams,
+            "trigrams": trigrams,
+            "prefixes": prefixes,
+            "suffixes": suffixes,
+        }
+        return self._alician_shape_cache
+
+    def _is_known_alician_word(self, word):
+        is_known, _, _ = self.highlight_manager.check_word_status(word)
+        return bool(is_known)
+
+    def _alician_context_score(self, text, start, end):
+        left = max(0, start - self.CONTEXT_RADIUS)
+        right = min(len(text), end + self.CONTEXT_RADIUS)
+        context = text[left:right]
+        total = 0
+        known = 0
+        for match in self.WORD_PATTERN.finditer(context):
+            token = match.group()
+            token_start = left + match.start()
+            token_end = left + match.end()
+            if token_start == start and token_end == end:
+                continue
+            if self._normalize_word(token) in self.COMMON_FOREIGN_WORDS:
+                continue
+            total += 1
+            if self._is_known_alician_word(token):
+                known += 1
+        if total == 0:
+            return 0.0, 0, 0
+        return known / total, known, total
+
+    def _alician_shape_score(self, word):
+        normalized = self._normalize_word(word)
+        if len(normalized) <= 2:
+            return 0.0
+
+        data = self._get_alician_shape_data()
+        score = 0.0
+        bigrams = [normalized[i:i + 2] for i in range(len(normalized) - 1)]
+        trigrams = [normalized[i:i + 3] for i in range(len(normalized) - 2)]
+
+        if bigrams:
+            score += sum(1 for bg in bigrams if bg in data["bigrams"]) / len(bigrams)
+        if trigrams:
+            score += sum(1 for tg in trigrams if tg in data["trigrams"]) / len(trigrams) * 1.4
+        if normalized[:3] in data["prefixes"]:
+            score += 0.45
+        if normalized[-3:] in data["suffixes"]:
+            score += 0.45
+
+        if any(ch in normalized for ch in "jqxz"):
+            score += 0.25
+        if re.search(r"(ai|ei|ia|ie|ll|ss|ql|sy|ty|iy)", normalized):
+            score += 0.25
+        return score
+
+    def _has_close_alician_neighbor(self, word):
+        normalized = self._normalize_word(word)
+        if len(normalized) < 4:
+            return False
+        if normalized in self._close_alician_neighbor_cache:
+            return self._close_alician_neighbor_cache[normalized]
+        threshold = 0.86 if len(normalized) <= 5 else 0.78
+        best = 0.0
+        for known in self.highlight_manager.known_words:
+            candidate = self._normalize_word(known)
+            if not candidate or candidate in self.COMMON_FOREIGN_WORDS:
+                continue
+            if abs(len(candidate) - len(normalized)) > 2:
+                continue
+            ratio = SequenceMatcher(None, normalized, candidate).ratio()
+            if ratio > best:
+                best = ratio
+                if best >= threshold:
+                    self._close_alician_neighbor_cache[normalized] = True
+                    return True
+        self._close_alician_neighbor_cache[normalized] = False
+        return False
+
+    def _should_ignore_foreign_word(self, word, text, start, end):
+        """Skip obvious non-Alician prose while keeping typos in Alician context visible."""
+        normalized = self._normalize_word(word)
+        if not normalized:
+            return True
+
+        if normalized in self.COMMON_FOREIGN_WORDS:
+            return True
+
+        context_ratio, known_context, total_context = self._alician_context_score(text, start, end)
+        if total_context >= self.MIN_CONTEXT_WORDS_FOR_ALICIAN and known_context == 0:
+            return True
+
+        if self._has_close_alician_neighbor(word):
+            return False
+
+        shape_score = self._alician_shape_score(word)
+        if known_context >= 2 and context_ratio >= 0.2 and shape_score >= 2.8:
+            return False
+        if known_context >= 1 and total_context < self.MIN_CONTEXT_WORDS_FOR_ALICIAN and shape_score >= 3.0:
+            return False
+
+        return True
     
     def _apply_tags_batch(self, changed_lines, tags_to_add):
         """批量应用标签"""
@@ -466,5 +657,6 @@ class WordChecker:
         """重置检查器状态，当配置更改时调用"""
         self.last_text_hash = None
         self.last_checked_text = ""
+        self._close_alician_neighbor_cache.clear()
         # 清除高亮映射
         self.highlight_manager.clear_highlight_map()

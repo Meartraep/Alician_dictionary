@@ -249,7 +249,25 @@ function applyWritingSettings(settings) {
   state.writing.settings = settings || state.writing.settings;
   els.settingsStrictCase.checked = Boolean(state.writing.settings.strict_case);
   els.settingsUndo.value = Number(state.writing.settings.max_undo_steps) || 100;
+  els.settingsDictionaryFormat.checked = Boolean(state.writing.settings.dictionary_format_enabled);
+  els.settingsDictionarySeparators.value = normalizeDictionarySeparators(
+    state.writing.settings.dictionary_format_separators || [":", "："]
+  ).join(" ");
   renderExcludedWords(state.writing.settings.excluded_words || []);
+}
+
+function normalizeDictionarySeparators(value) {
+  var source = Array.isArray(value)
+    ? value
+    : String(value || "").split(/[\s,，]+/);
+  var normalized = [], seen = new Set();
+  for (var i = 0; i < source.length; i++) {
+    var separator = String(source[i] || "").trim();
+    if (!separator || seen.has(separator)) continue;
+    seen.add(separator);
+    normalized.push(separator);
+  }
+  return normalized;
 }
 
 function applyAppSettings(settings) {
@@ -340,7 +358,159 @@ function selectSidebarWord(item) {
   });
 }
 
+function isWritingTextFile(file) {
+  if (!file) return false;
+  var name = String(file.name || "").toLowerCase();
+  return file.type === "text/plain" || name.endsWith(".txt");
+}
+
+function decodeBytesWithEncoding(bytes, encoding, fatal) {
+  return new TextDecoder(encoding, { fatal: Boolean(fatal) }).decode(bytes);
+}
+
+function countTextIssues(text) {
+  var replacements = 0, controls = 0;
+  for (var i = 0; i < text.length; i++) {
+    var code = text.charCodeAt(i);
+    if (code === 0xfffd) replacements += 1;
+    else if (code < 32 && code !== 9 && code !== 10 && code !== 13) controls += 1;
+  }
+  return { replacements: replacements, controls: controls };
+}
+
+function scoreDecodedText(text) {
+  if (!text) return -100000;
+  var issues = countTextIssues(text);
+  var printable = 0, cjk = 0, whitespace = 0;
+  for (var i = 0; i < text.length; i++) {
+    var code = text.charCodeAt(i);
+    if (code === 9 || code === 10 || code === 13 || code === 32) whitespace += 1;
+    if (code >= 32 || code === 9 || code === 10 || code === 13) printable += 1;
+    if ((code >= 0x4e00 && code <= 0x9fff) || (code >= 0x3400 && code <= 0x4dbf)) cjk += 1;
+  }
+  var suspicious = (text.match(/[ÃÂ¤åæçèéêäöü]/g) || []).length;
+  return printable + cjk * 3 + whitespace - issues.replacements * 200 - issues.controls * 80 - suspicious * 2;
+}
+
+function hasBom(bytes, bom) {
+  if (bytes.length < bom.length) return false;
+  for (var i = 0; i < bom.length; i++) {
+    if (bytes[i] !== bom[i]) return false;
+  }
+  return true;
+}
+
+function guessUtf16Encoding(bytes) {
+  var sampleLen = Math.min(bytes.length, 4096);
+  if (sampleLen < 8) return "";
+  var evenZeros = 0, oddZeros = 0, pairs = Math.floor(sampleLen / 2);
+  for (var i = 0; i + 1 < sampleLen; i += 2) {
+    if (bytes[i] === 0) evenZeros += 1;
+    if (bytes[i + 1] === 0) oddZeros += 1;
+  }
+  if (oddZeros / pairs > 0.35 && evenZeros / pairs < 0.1) return "utf-16le";
+  if (evenZeros / pairs > 0.35 && oddZeros / pairs < 0.1) return "utf-16be";
+  return "";
+}
+
+function decodeTextFileBuffer(buffer) {
+  var bytes = new Uint8Array(buffer);
+  if (hasBom(bytes, [0xef, 0xbb, 0xbf])) {
+    return { text: decodeBytesWithEncoding(bytes.subarray(3), "utf-8", false), encoding: "UTF-8 BOM" };
+  }
+  if (hasBom(bytes, [0xff, 0xfe])) {
+    return { text: decodeBytesWithEncoding(bytes.subarray(2), "utf-16le", false), encoding: "UTF-16 LE" };
+  }
+  if (hasBom(bytes, [0xfe, 0xff])) {
+    return { text: decodeBytesWithEncoding(bytes.subarray(2), "utf-16be", false), encoding: "UTF-16 BE" };
+  }
+
+  var utf16 = guessUtf16Encoding(bytes);
+  if (utf16) {
+    return {
+      text: decodeBytesWithEncoding(bytes, utf16, false),
+      encoding: utf16 === "utf-16le" ? "UTF-16 LE" : "UTF-16 BE",
+    };
+  }
+
+  try {
+    return { text: decodeBytesWithEncoding(bytes, "utf-8", true), encoding: "UTF-8" };
+  } catch (_) {}
+
+  var candidates = ["gb18030", "gbk", "big5", "windows-1252", "shift_jis", "euc-kr"];
+  var best = null;
+  for (var i = 0; i < candidates.length; i++) {
+    try {
+      var decoded = decodeBytesWithEncoding(bytes, candidates[i], false);
+      var score = scoreDecodedText(decoded);
+      if (!best || score > best.score) {
+        best = { text: decoded, encoding: candidates[i].toUpperCase(), score: score };
+      }
+    } catch (_) {}
+  }
+  if (best) return { text: best.text, encoding: best.encoding };
+  return { text: decodeBytesWithEncoding(bytes, "utf-8", false), encoding: "UTF-8 fallback" };
+}
+
+async function importWritingTextFile(file) {
+  if (!file) return;
+  if (!isWritingTextFile(file)) {
+    toast("请导入 .txt 文本文件。", "warn", 3200);
+    return;
+  }
+  var decoded = decodeTextFileBuffer(await file.arrayBuffer());
+  els.writingEditor.textContent = decoded.text;
+  state.writing.selectedSidebarKey = "";
+  closeInfoPopup();
+  saveModuleSnapshot("writing");
+  if (getEditorText().trim()) await runWritingCheck(true);
+  else {
+    state.writing.lastResult = null;
+    renderWritingSidebar([]);
+    els.writingStatus.textContent = "";
+  }
+  toast("已导入：" + file.name + "（" + decoded.encoding + "）");
+}
+
+function bindWritingFileDrop() {
+  var dropTarget = els.writingWorkspace;
+  if (!dropTarget) return;
+
+  function hasFiles(e) {
+    return Array.prototype.indexOf.call(e.dataTransfer?.types || [], "Files") >= 0;
+  }
+
+  ["dragenter", "dragover"].forEach(function (eventName) {
+    dropTarget.addEventListener(eventName, function (e) {
+      if (!hasFiles(e)) return;
+      e.preventDefault();
+      if (e.dataTransfer) e.dataTransfer.dropEffect = "copy";
+      dropTarget.classList.add("file-drag-over");
+    });
+  });
+
+  ["dragleave", "dragend"].forEach(function (eventName) {
+    dropTarget.addEventListener(eventName, function (e) {
+      if (eventName === "dragleave" && dropTarget.contains(e.relatedTarget)) return;
+      dropTarget.classList.remove("file-drag-over");
+    });
+  });
+
+  dropTarget.addEventListener("drop", async function (e) {
+    if (!hasFiles(e)) return;
+    e.preventDefault();
+    dropTarget.classList.remove("file-drag-over");
+    var file = e.dataTransfer?.files?.[0];
+    try {
+      await importWritingTextFile(file);
+    } catch (err) {
+      toast("导入失败：" + err.message, "warn", 3200);
+    }
+  });
+}
+
 function bindWritingEvents() {
+  bindWritingFileDrop();
   els.writingEditor.addEventListener("compositionstart", function () {
     state.writing.isComposing = true; state.writing.checkSeq += 1;
     clearTimeout(state.writing.debounceTimer);
@@ -397,12 +567,11 @@ function bindWritingEvents() {
   els.fileLoader.addEventListener("change", async function () {
     var file = els.fileLoader.files?.[0];
     if (!file) return;
-    var text = await file.text();
-    els.writingEditor.textContent = text;
-    state.writing.selectedSidebarKey = ""; closeInfoPopup();
-    saveModuleSnapshot("writing");
-    if (getEditorText().trim()) await runWritingCheck(true);
-    toast("已导入：" + file.name);
+    try {
+      await importWritingTextFile(file);
+    } catch (err) {
+      toast("导入失败：" + err.message, "warn", 3200);
+    }
   });
   els.writingExportBtn.addEventListener("click", async function () {
     try {
@@ -439,6 +608,8 @@ function bindWritingEvents() {
     var p = {
       strict_case: Boolean(els.settingsStrictCase.checked),
       max_undo_steps: Number(els.settingsUndo.value) || 100,
+      dictionary_format_enabled: Boolean(els.settingsDictionaryFormat.checked),
+      dictionary_format_separators: normalizeDictionarySeparators(els.settingsDictionarySeparators.value),
       excluded_words: state.writing.settings.excluded_words || [],
     };
     try {
