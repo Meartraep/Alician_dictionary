@@ -7,7 +7,15 @@ def _get_app_root() -> Path:
         return Path(os.path.dirname(sys.executable))
     return Path(__file__).resolve().parent
 
+
+def _get_resource_root() -> Path:
+    if getattr(sys, 'frozen', False):
+        return Path(getattr(sys, "_MEIPASS", os.path.dirname(sys.executable)))
+    return Path(__file__).resolve().parent
+
+
 APP_ROOT = _get_app_root()
+RESOURCE_ROOT = _get_resource_root()
 
 # Frozen subprocess dispatch — re-launched by the packaged exe to run
 # modal tools (db diff dialog / db exporter) in isolated processes.
@@ -85,7 +93,7 @@ def _ensure_local_db_exists(data_root: Path) -> Path:
     if local_db_path.exists():
         return local_db_path
 
-    source_db_path = APP_ROOT / "translated.db"
+    source_db_path = RESOURCE_ROOT / "translated.db"
     if source_db_path.exists() and source_db_path.resolve() != local_db_path.resolve():
         data_root.mkdir(parents=True, exist_ok=True)
         _safe_copy_file(source_db_path, local_db_path)
@@ -143,10 +151,9 @@ class WelcomeAPI:
 def show_welcome_window(allow_data_dir_selection: bool) -> str:
     import webview
 
-    project_root = APP_ROOT
+    project_root = RESOURCE_ROOT
     welcome_path = project_root / "webui" / "welcome.html"
     if not welcome_path.exists():
-        mark_launched()
         return ""
 
     api = WelcomeAPI(str(APP_ROOT), allow_data_dir_selection)
@@ -210,7 +217,7 @@ def main(
 
     if is_frozen and not local_db_path.exists():
         import shutil
-        bundled_db = Path(sys._MEIPASS) / "translated.db"
+        bundled_db = RESOURCE_ROOT / "translated.db"
         if bundled_db.exists():
             shutil.copy2(str(bundled_db), str(local_db_path))
 

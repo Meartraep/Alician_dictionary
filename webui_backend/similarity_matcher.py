@@ -2,25 +2,78 @@ from __future__ import annotations
 
 import logging
 import os
+import site
+import sys
 from typing import Any, Dict, List, Tuple
 
 logger = logging.getLogger(__name__)
 
-_HF_OFFLINE_WAS_SET = "HF_HUB_OFFLINE" in os.environ
-if not _HF_OFFLINE_WAS_SET:
-    os.environ["HF_HUB_OFFLINE"] = "1"
+_EXTERNAL_PATH_ENV = "ALICIAN_EXTERNAL_LIB_PATH"
 
-try:
-    from text2vec import SentenceModel
-    import numpy as np
 
-    HAS_TEXT2VEC = True
-except Exception:
-    HAS_TEXT2VEC = False
-    if not _HF_OFFLINE_WAS_SET:
-        os.environ.pop("HF_HUB_OFFLINE", None)
+def _add_optional_dependency_paths() -> None:
+    candidates = []
+    env_paths = os.environ.get(_EXTERNAL_PATH_ENV, "")
+    if env_paths:
+        candidates.extend(env_paths.split(os.pathsep))
+
+    exe_dir = os.path.dirname(sys.executable) if getattr(sys, "frozen", False) else ""
+    if exe_dir:
+        candidates.extend(
+            [
+                os.path.join(exe_dir, "external_libs"),
+                os.path.join(exe_dir, "site-packages"),
+            ]
+        )
+
+    try:
+        candidates.append(site.getusersitepackages())
+    except Exception:
+        pass
+
+    try:
+        candidates.extend(site.getsitepackages())
+    except Exception:
+        pass
+
+    for path in candidates:
+        if path and os.path.isdir(path) and path not in sys.path:
+            sys.path.append(path)
+
 
 _MODEL_NAME = "shibing624/text2vec-base-chinese"
+_OPTIONAL_DEPS_CHECKED = False
+_SENTENCE_MODEL_CLS: Any = None
+_NP: Any = None
+
+
+def _load_optional_dependencies() -> bool:
+    global _OPTIONAL_DEPS_CHECKED, _SENTENCE_MODEL_CLS, _NP
+
+    if _SENTENCE_MODEL_CLS is not None and _NP is not None:
+        return True
+    if _OPTIONAL_DEPS_CHECKED:
+        return False
+
+    _OPTIONAL_DEPS_CHECKED = True
+    _add_optional_dependency_paths()
+
+    hf_offline_was_set = "HF_HUB_OFFLINE" in os.environ
+    if not hf_offline_was_set:
+        os.environ["HF_HUB_OFFLINE"] = "1"
+
+    try:
+        from text2vec import SentenceModel
+        import numpy as np
+    except Exception as e:
+        if not hf_offline_was_set:
+            os.environ.pop("HF_HUB_OFFLINE", None)
+        logger.info(f"text2vec 可选依赖不可用: {e}")
+        return False
+
+    _SENTENCE_MODEL_CLS = SentenceModel
+    _NP = np
+    return True
 
 
 class SimilarityMatcher:
@@ -38,10 +91,10 @@ class SimilarityMatcher:
     def _ensure_model(self) -> bool:
         if self._model is not None:
             return True
-        if not HAS_TEXT2VEC:
+        if not _load_optional_dependencies():
             return False
         try:
-            self._model = SentenceModel(_MODEL_NAME)
+            self._model = _SENTENCE_MODEL_CLS(_MODEL_NAME)
             logger.info("text2vec SentenceModel 加载成功")
             return True
         except Exception as e:
@@ -85,9 +138,9 @@ class SimilarityMatcher:
 
         try:
             query_embedding = self._model.encode([query])
-            scores = np.dot(query_embedding, self._embeddings.T)[0]
+            scores = _NP.dot(query_embedding, self._embeddings.T)[0]
 
-            top_indices = np.argsort(scores)[-top_k:][::-1]
+            top_indices = _NP.argsort(scores)[-top_k:][::-1]
 
             results: List[Dict[str, Any]] = []
             for idx in top_indices:

@@ -8,10 +8,6 @@ REG_VALUE_NAME = "FirstLaunchCompleted"
 REG_VALUE_DATA = "1"
 
 
-def _ensure_key() -> None:
-    winreg.CreateKey(REG_ROOT, REG_SUBKEY)
-
-
 def is_first_launch() -> bool:
     try:
         key = winreg.OpenKey(REG_ROOT, REG_SUBKEY)
@@ -27,10 +23,11 @@ def is_first_launch() -> bool:
 
 
 def mark_launched() -> None:
-    _ensure_key()
-    key = winreg.OpenKey(REG_ROOT, REG_SUBKEY, 0, winreg.KEY_SET_VALUE)
-    winreg.SetValueEx(key, REG_VALUE_NAME, 0, winreg.REG_SZ, REG_VALUE_DATA)
-    winreg.CloseKey(key)
+    key = winreg.CreateKeyEx(REG_ROOT, REG_SUBKEY, 0, winreg.KEY_SET_VALUE)
+    try:
+        winreg.SetValueEx(key, REG_VALUE_NAME, 0, winreg.REG_SZ, REG_VALUE_DATA)
+    finally:
+        winreg.CloseKey(key)
 
 
 def delete_launch_mark() -> bool:
