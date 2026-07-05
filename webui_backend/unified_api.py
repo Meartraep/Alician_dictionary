@@ -32,18 +32,20 @@ class UnifiedAPI:
         data_root: Any = None,
     ) -> None:
         self._lock = threading.RLock()
-        self.update_checker = update_checker
-        self.app_settings = app_settings
-        self.data_root = Path(data_root) if data_root is not None else PROJECT_ROOT
+        # Keep service objects private so pywebview does not recursively expose
+        # their internals as JavaScript API methods.
+        self._update_checker = update_checker
+        self._app_settings = app_settings
+        self._data_root = Path(data_root) if data_root is not None else PROJECT_ROOT
         self.initial_tab = initial_tab if initial_tab in VALID_TABS else "dictionary"
         self.startup_query = (startup_query or "").strip()
         self.startup_exact = bool(startup_exact)
         self._main_window = None
         self._detached_windows: Dict[str, Any] = {}
         self._closed = False
-        self.dictionary_service: Any = None
-        self.writing_service: Any = None
-        self.dbmanager_service: Any = None
+        self._dictionary_service: Any = None
+        self._writing_service: Any = None
+        self._dbmanager_service: Any = None
         _Event = threading.Event
         self._tasks: "queue.Queue[Optional[Tuple[Any, Tuple[Any, ...], Dict[str, Any], Dict[str, Any], _Event]]]" = queue.Queue()
         self._worker_ready = threading.Event()
@@ -56,7 +58,7 @@ class UnifiedAPI:
         if not getattr(sys, 'frozen', False):
             return PROJECT_ROOT / "translated.db"
 
-        primary_db_path = self.data_root / "translated.db"
+        primary_db_path = self._data_root / "translated.db"
         if primary_db_path.exists():
             return primary_db_path
 
@@ -76,20 +78,20 @@ class UnifiedAPI:
             DictionaryConfig.CURRENT_DB = str(db_path)
         except Exception:
             pass
-        if self.app_settings is not None:
-            self.app_settings.db_path = db_path
-        if self.update_checker is not None and hasattr(self.update_checker, "local_db_path"):
-            self.update_checker.local_db_path = str(db_path)
+        if self._app_settings is not None:
+            self._app_settings.db_path = db_path
+        if self._update_checker is not None and hasattr(self._update_checker, "local_db_path"):
+            self._update_checker.local_db_path = str(db_path)
 
     def _open_worker_services(self) -> None:
-        self._configure_runtime_paths(self.data_root)
-        self.dictionary_service = DictionaryService()
-        self.writing_service = WritingAssistantService()
+        self._configure_runtime_paths(self._data_root)
+        self._dictionary_service = DictionaryService()
+        self._writing_service = WritingAssistantService()
         db_path = str(self._resolve_dbmanager_db_path())
-        self.dbmanager_service = DatabaseManagerService(db_path)
+        self._dbmanager_service = DatabaseManagerService(db_path)
 
     def _close_worker_services(self) -> None:
-        for svc in ("dictionary_service", "writing_service", "dbmanager_service"):
+        for svc in ("_dictionary_service", "_writing_service", "_dbmanager_service"):
             try:
                 current = getattr(self, svc, None)
                 if current is not None:
@@ -149,7 +151,7 @@ class UnifiedAPI:
             dictionary_history = HistoryManager().get_history()
         except Exception:
             dictionary_history = []
-        app_settings = self.app_settings.get_public_settings() if self.app_settings is not None else {
+        app_settings = self._app_settings.get_public_settings() if self._app_settings is not None else {
             "auto_update": True, "auto_update_status": ""}
         return {
             "initial_tab": self.initial_tab, "startup_query": self.startup_query,
@@ -237,67 +239,67 @@ class UnifiedAPI:
             return {"ok": False, "message": f"前置窗口失败: {exc}"}
 
     def dictionary_search(self, query: str, exact_match: bool = False) -> Dict[str, Any]:
-        return self._invoke(lambda: self.dictionary_service.search(query, bool(exact_match)))
+        return self._invoke(lambda: self._dictionary_service.search(query, bool(exact_match)))
 
     def dictionary_history(self) -> List[str]:
-        return self._invoke(lambda: self.dictionary_service.get_history())
+        return self._invoke(lambda: self._dictionary_service.get_history())
 
     def dictionary_examples(self, word: str) -> Dict[str, Any]:
-        return self._invoke(lambda: self.dictionary_service.get_examples(word))
+        return self._invoke(lambda: self._dictionary_service.get_examples(word))
 
     def dictionary_update_lyric(self, title: str, album: str, lyric: str) -> Dict[str, Any]:
-        ret = self._invoke(lambda: self.dictionary_service.update_song_lyric(title, album, lyric))
-        if ret and ret.get("ok") and self.app_settings is not None:
-            self.app_settings.mark_local_database_changed()
+        ret = self._invoke(lambda: self._dictionary_service.update_song_lyric(title, album, lyric))
+        if ret and ret.get("ok") and self._app_settings is not None:
+            self._app_settings.mark_local_database_changed()
         return ret
 
     def writing_check_text(self, text: str) -> Dict[str, Any]:
-        return self._invoke(lambda: self.writing_service.check_text(text))
+        return self._invoke(lambda: self._writing_service.check_text(text))
 
     def writing_get_settings(self) -> Dict[str, Any]:
-        return self._invoke(lambda: self.writing_service.get_settings())
+        return self._invoke(lambda: self._writing_service.get_settings())
 
     def writing_save_settings(self, settings: Dict[str, Any]) -> Dict[str, Any]:
-        return self._invoke(lambda: self.writing_service.save_settings(settings or {}))
+        return self._invoke(lambda: self._writing_service.save_settings(settings or {}))
 
     def writing_lookup(self, selected_text: str) -> Dict[str, Any]:
-        return self._invoke(lambda: self.writing_service.lookup_explanations(selected_text))
+        return self._invoke(lambda: self._writing_service.lookup_explanations(selected_text))
 
     def writing_query_dictionary(self, query: str, exact_match: bool = False) -> Dict[str, Any]:
-        return self._invoke(lambda: self.dictionary_service.search(query, bool(exact_match)))
+        return self._invoke(lambda: self._dictionary_service.search(query, bool(exact_match)))
 
     def app_get_settings(self) -> Dict[str, Any]:
-        if self.app_settings is None:
+        if self._app_settings is None:
             return {"auto_update": True, "auto_update_status": "", "alic_font": False, "alic_hover_enabled": True, "alic_hover_delay": 300, "update_check_status": "就绪"}
-        public = self.app_settings.get_public_settings()
+        public = self._app_settings.get_public_settings()
         return public
 
     def app_save_settings(self, settings: Dict[str, Any]) -> Dict[str, Any]:
-        if self.app_settings is None:
+        if self._app_settings is None:
             return {"ok": False, "message": "设置管理器不可用。", "settings": self.app_get_settings()}
         s = settings or {}
         if "auto_update" in s:
-            self.app_settings.settings["auto_update"] = bool(s["auto_update"])
+            self._app_settings.settings["auto_update"] = bool(s["auto_update"])
         if "alic_font" in s:
-            self.app_settings.settings["alic_font"] = bool(s["alic_font"])
+            self._app_settings.settings["alic_font"] = bool(s["alic_font"])
         if "alic_hover_enabled" in s:
-            self.app_settings.settings["alic_hover_enabled"] = bool(s["alic_hover_enabled"])
+            self._app_settings.settings["alic_hover_enabled"] = bool(s["alic_hover_enabled"])
         if "alic_hover_delay" in s:
             delay = max(0, min(1000, int(s["alic_hover_delay"])))
-            self.app_settings.settings["alic_hover_delay"] = delay
-        self.app_settings.save()
-        public = self.app_settings.get_public_settings()
+            self._app_settings.settings["alic_hover_delay"] = delay
+        self._app_settings.save()
+        public = self._app_settings.get_public_settings()
         return {"ok": True, "message": "设置已保存。", "settings": public}
 
     def app_force_download_update(self) -> Dict[str, Any]:
-        if self.update_checker is None:
+        if self._update_checker is None:
             return {"ok": False, "message": "更新检查器不可用"}
-        return self.update_checker.force_download_and_diff()
+        return self._update_checker.force_download_and_diff()
 
     def app_check_for_update(self) -> Dict[str, Any]:
-        if self.update_checker is None:
+        if self._update_checker is None:
             return {"ok": False, "message": "更新检查器不可用"}
-        return self.update_checker.manual_check_for_update()
+        return self._update_checker.manual_check_for_update()
 
     def _writing_export_text_impl(self, content: str,
                                   suggested_name: str = "writing_assistant.txt") -> Dict[str, Any]:
@@ -331,32 +333,32 @@ class UnifiedAPI:
         return self._invoke(self._writing_export_text_impl, content, suggested_name)
 
     def dbmanager_get_tables(self) -> List[str]:
-        return self._invoke(lambda: self.dbmanager_service.get_tables())
+        return self._invoke(lambda: self._dbmanager_service.get_tables())
 
     def dbmanager_get_fields(self, table_name: str) -> List[str]:
-        return self._invoke(lambda: self.dbmanager_service.get_fields(table_name))
+        return self._invoke(lambda: self._dbmanager_service.get_fields(table_name))
 
     def dbmanager_get_all_data(self, table_name: str) -> Dict[str, Any]:
-        return self._invoke(lambda: self.dbmanager_service.get_all_data(table_name))
+        return self._invoke(lambda: self._dbmanager_service.get_all_data(table_name))
 
     def dbmanager_search(self, table_name: str, keyword: str) -> Dict[str, Any]:
-        return self._invoke(lambda: self.dbmanager_service.search_records(table_name, keyword))
+        return self._invoke(lambda: self._dbmanager_service.search_records(table_name, keyword))
 
     def dbmanager_add_record(self, table_name: str, values: Dict[str, str]) -> Dict[str, Any]:
-        ret = self._invoke(lambda: self.dbmanager_service.add_record(table_name, values))
-        if ret and ret.get("ok") and self.app_settings is not None:
-            self.app_settings.mark_local_database_changed()
+        ret = self._invoke(lambda: self._dbmanager_service.add_record(table_name, values))
+        if ret and ret.get("ok") and self._app_settings is not None:
+            self._app_settings.mark_local_database_changed()
         return ret
 
     def dbmanager_update_record(self, table_name: str, record_id: int,
                                 values: Dict[str, str]) -> Dict[str, Any]:
-        ret = self._invoke(lambda: self.dbmanager_service.update_record(table_name, record_id, values))
-        if ret and ret.get("ok") and self.app_settings is not None:
-            self.app_settings.mark_local_database_changed()
+        ret = self._invoke(lambda: self._dbmanager_service.update_record(table_name, record_id, values))
+        if ret and ret.get("ok") and self._app_settings is not None:
+            self._app_settings.mark_local_database_changed()
         return ret
 
     def dbmanager_batch_update(self, table_name: str, edits: List[Dict[str, Any]]) -> Dict[str, Any]:
-        ret = self._invoke(lambda: self.dbmanager_service.batch_update(table_name, edits))
+        ret = self._invoke(lambda: self._dbmanager_service.batch_update(table_name, edits))
         if ret and ret.get("ok"):
             try:
                 timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -366,28 +368,28 @@ class UnifiedAPI:
                     vals = edit.get("values", {})
                     lines.append(f"  id={rid}: {vals}")
                 lines.append("")
-                with open(self.data_root / "db_update.log", "a", encoding="utf-8") as f:
+                with open(self._data_root / "db_update.log", "a", encoding="utf-8") as f:
                     f.write("\n".join(lines) + "\n")
             except Exception:
                 pass
-            if self.app_settings is not None:
-                self.app_settings.mark_local_database_changed()
+            if self._app_settings is not None:
+                self._app_settings.mark_local_database_changed()
         return ret
 
     def dbmanager_delete_records(self, table_name: str, ids: List[int]) -> Dict[str, Any]:
-        ret = self._invoke(lambda: self.dbmanager_service.delete_records(table_name, ids))
-        if ret and ret.get("ok") and self.app_settings is not None:
-            self.app_settings.mark_local_database_changed()
+        ret = self._invoke(lambda: self._dbmanager_service.delete_records(table_name, ids))
+        if ret and ret.get("ok") and self._app_settings is not None:
+            self._app_settings.mark_local_database_changed()
         return ret
 
     def dbmanager_global_search(self, keyword: str) -> Dict[str, Any]:
-        return self._invoke(lambda: self.dbmanager_service.global_search(keyword))
+        return self._invoke(lambda: self._dbmanager_service.global_search(keyword))
 
     def dbmanager_global_replace(self, keyword: str, replacement: str,
                                  match_records: List[Dict[str, Any]]) -> Dict[str, Any]:
-        ret = self._invoke(lambda: self.dbmanager_service.global_replace(keyword, replacement, match_records))
-        if ret and ret.get("ok") and self.app_settings is not None:
-            self.app_settings.mark_local_database_changed()
+        ret = self._invoke(lambda: self._dbmanager_service.global_replace(keyword, replacement, match_records))
+        if ret and ret.get("ok") and self._app_settings is not None:
+            self._app_settings.mark_local_database_changed()
         return ret
 
     def _update_word_count_impl(self) -> Dict[str, Any]:
@@ -401,8 +403,8 @@ class UnifiedAPI:
 
     def dbmanager_update_word_count(self) -> Dict[str, Any]:
         ret = self._invoke(self._update_word_count_impl)
-        if ret and ret.get("ok") and self.app_settings is not None:
-            self.app_settings.mark_local_database_changed()
+        if ret and ret.get("ok") and self._app_settings is not None:
+            self._app_settings.mark_local_database_changed()
         return ret
 
     def _classify_words_impl(self) -> Dict[str, Any]:
@@ -416,8 +418,8 @@ class UnifiedAPI:
 
     def dbmanager_classify_words(self) -> Dict[str, Any]:
         ret = self._invoke(self._classify_words_impl)
-        if ret and ret.get("ok") and self.app_settings is not None:
-            self.app_settings.mark_local_database_changed()
+        if ret and ret.get("ok") and self._app_settings is not None:
+            self._app_settings.mark_local_database_changed()
         return ret
 
     def dbmanager_export_db(self) -> Dict[str, Any]:
