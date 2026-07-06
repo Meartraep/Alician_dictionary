@@ -11,5 +11,10 @@
     "adj",
     "prep",
     "adv"
+  ],
+  "dictionary_format_enabled": true,
+  "dictionary_format_separators": [
+    ":",
+    "："
   ]
 }
