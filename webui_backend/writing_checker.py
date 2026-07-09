@@ -610,13 +610,19 @@ class WordChecker:
             return True
 
         context_ratio, known_context, total_context = self._alician_context_score(text, start, end)
+        if total_context == 0:
+            return False
+        if known_context > 0:
+            return False
+        shape_score = self._alician_shape_score(word)
+        if total_context < self.MIN_CONTEXT_WORDS_FOR_ALICIAN and known_context == 0:
+            return shape_score < 1.8
         if total_context >= self.MIN_CONTEXT_WORDS_FOR_ALICIAN and known_context == 0:
             return True
 
         if self._has_close_alician_neighbor(word):
             return False
 
-        shape_score = self._alician_shape_score(word)
         if known_context >= 2 and context_ratio >= 0.2 and shape_score >= 2.8:
             return False
         if known_context >= 1 and total_context < self.MIN_CONTEXT_WORDS_FOR_ALICIAN and shape_score >= 3.0:

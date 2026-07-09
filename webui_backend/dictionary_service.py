@@ -6,8 +6,8 @@ import threading
 from collections import defaultdict
 from typing import Any, Dict, List, Tuple
 
+from webui_backend.build_mode import is_lite_build
 from webui_backend.dictionary_core import DatabaseHandler, DictionaryConfig, HistoryManager, TextProcessor
-from webui_backend.similarity_matcher import SimilarityMatcher
 
 logger = logging.getLogger(__name__)
 
@@ -21,20 +21,33 @@ except Exception:
 
 
 class DictionaryService:
-    def __init__(self) -> None:
+    def __init__(self, enable_fuzzy: bool | None = None) -> None:
         self._lock = threading.RLock()
+        self.enable_fuzzy = (not is_lite_build()) if enable_fuzzy is None else bool(enable_fuzzy)
         self.db_handler = DatabaseHandler(DictionaryConfig.CURRENT_DB)
         if not self.db_handler.connect():
             raise RuntimeError(f"Failed to connect to dictionary database: {DictionaryConfig.CURRENT_DB}")
         self.history_manager = HistoryManager()
-        self.similarity_matcher = SimilarityMatcher()
+        self.similarity_matcher = self._create_similarity_matcher() if self.enable_fuzzy else None
         self._similarity_index_built = False
+
+    def _create_similarity_matcher(self) -> Any:
+        try:
+            from importlib import import_module
+
+            module = import_module("webui_backend.similarity_matcher")
+            return module.SimilarityMatcher()
+        except Exception:
+            logger.info("相似度模块不可用，已跳过模糊建议。", exc_info=True)
+            return None
 
     def _ensure_connection(self) -> None:
         if not self.db_handler.conn:
             self.db_handler.connect()
 
     def _build_similarity_index(self) -> None:
+        if self.similarity_matcher is None:
+            return
         try:
             word_explanation_pairs = self.db_handler.get_all_words()
             if word_explanation_pairs:
@@ -52,13 +65,14 @@ class DictionaryService:
             }
         with self._lock:
             self._ensure_connection()
+            effective_exact = bool(exact_match)
             is_phrase = re.match(r"^\w+(\s+\w+)+$", normalized_query) is not None
             sections: List[Dict[str, Any]] = []
             if is_phrase:
-                phrase_rows = self.db_handler.search_phrases(normalized_query, bool(exact_match))
+                phrase_rows = self.db_handler.search_phrases(normalized_query, effective_exact)
                 phrase_entries = []
                 for phrase, explanation in phrase_rows:
-                    stats = self.db_handler.get_phrase_stats(phrase, bool(exact_match)) or (0, 0)
+                    stats = self.db_handler.get_phrase_stats(phrase, effective_exact) or (0, 0)
                     phrase_entries.append({
                         "word": phrase, "explanation": explanation, "word_class": "",
                         "kind": "phrase", "count": stats[0], "variety": stats[1],
@@ -68,17 +82,17 @@ class DictionaryService:
                         "title": "爱丽丝语词组 -> 中文", "kind": "phrase", "entries": phrase_entries,
                     })
             else:
-                alice_rows, chinese_rows = self.db_handler.search_words(normalized_query, bool(exact_match))
+                alice_rows, chinese_rows = self.db_handler.search_words(normalized_query, effective_exact)
                 alice_entries = []
                 for word, explanation, word_class in alice_rows:
-                    stats = self.db_handler.get_word_stats(word, bool(exact_match)) or (0, 0)
+                    stats = self.db_handler.get_word_stats(word, effective_exact) or (0, 0)
                     alice_entries.append({
                         "word": word, "explanation": explanation, "word_class": word_class,
                         "kind": "alice", "count": stats[0], "variety": stats[1],
                     })
                 chinese_entries = []
                 for word, explanation, word_class in chinese_rows:
-                    stats = self.db_handler.get_word_stats(word, bool(exact_match)) or (0, 0)
+                    stats = self.db_handler.get_word_stats(word, effective_exact) or (0, 0)
                     chinese_entries.append({
                         "word": word, "explanation": explanation, "word_class": word_class,
                         "kind": "chinese", "count": stats[0], "variety": stats[1],
@@ -90,7 +104,7 @@ class DictionaryService:
             self.history_manager.add_record(normalized_query)
             context_examples: Dict[str, Any] | None = None
             suggestions: List[Dict[str, Any]] = []
-            if not sections and not is_phrase:
+            if self.enable_fuzzy and not sections and not is_phrase:
                 context_examples = self._get_examples_payload(normalized_query)
                 if context_examples.get("examples"):
                     sections.append({
@@ -105,17 +119,19 @@ class DictionaryService:
                             "variety": len(context_examples.get("song_stats", [])),
                         }],
                     })
-                if not self._similarity_index_built:
+                if self.similarity_matcher is not None and not self._similarity_index_built:
                     self._build_similarity_index()
                     self._similarity_index_built = True
-                suggestions = self.similarity_matcher.find_similar(normalized_query)
+                if self.similarity_matcher is not None:
+                    suggestions = self.similarity_matcher.find_similar(normalized_query)
             return {
-                "ok": True, "query": normalized_query, "exact_match": bool(exact_match),
+                "ok": True, "query": normalized_query, "exact_match": effective_exact,
                 "is_phrase": is_phrase, "sections": sections,
                 "history": self.history_manager.get_history(),
                 "message": "" if sections else f"未搜索到对应单词：'{normalized_query}'。",
                 "suggestions": suggestions,
                 "context_examples": context_examples,
+                "features": {"fuzzy_search": self.enable_fuzzy},
             }
 
     def get_history(self) -> List[str]:

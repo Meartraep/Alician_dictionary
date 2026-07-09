@@ -8,6 +8,19 @@ import webview
 from webui_backend.unified_api import UnifiedAPI, PROJECT_ROOT
 
 
+def _resolve_icon_path(data_root: Any = None) -> Optional[str]:
+    candidates = []
+    if data_root is not None:
+        candidates.append(Path(data_root) / "alice_app.ico")
+        candidates.append(Path(data_root) / "alice.ico")
+    candidates.append(PROJECT_ROOT / "alice_app.ico")
+    candidates.append(PROJECT_ROOT / "alice.ico")
+    for path in candidates:
+        if path.exists():
+            return str(path)
+    return None
+
+
 def launch_unified_webui(
     initial_tab: str = "dictionary",
     startup_query: Optional[str] = None,
@@ -34,10 +47,12 @@ def launch_unified_webui(
     api.set_main_window(main_window)
 
     storage_path = str(data_root / ".webview_profile") if data_root else str(PROJECT_ROOT / ".webview_profile")
+    icon_path = _resolve_icon_path(data_root)
     try:
         webview.start(
             private_mode=False,
             storage_path=storage_path,
+            icon=icon_path,
         )
     finally:
         api.shutdown()

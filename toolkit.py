@@ -59,6 +59,8 @@ DATA_DIR_NAME = "Alician_Data"
 _BUNDLED_DATA_FILES = [
     "translated.db",
     "word_checker_config.json",
+    "alice_app.ico",
+    "alice.ico",
 ]
 
 

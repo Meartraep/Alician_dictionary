@@ -30,6 +30,7 @@ var IS_NATIVE_DETACHED = WINDOW_PARAMS.get("window") === "detached" && DETACHABL
 var state = {
   isNativeDetached: IS_NATIVE_DETACHED,
   nativeAppId: IS_NATIVE_DETACHED ? NATIVE_APP_ID : null,
+  features: { lite: false, translator: true, fuzzy_search: true },
   activeDocked: "dictionary",
   zIndexSeed: 30,
   dragTabAppId: null,

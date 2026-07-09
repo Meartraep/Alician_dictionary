@@ -12,6 +12,8 @@
 !*.jsonl
 !*.sqlite
 !*.ttf
+!*.ico
+!*.spec
 
 build/
 dist/

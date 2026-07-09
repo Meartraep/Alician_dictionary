@@ -12,10 +12,10 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import webview
 
+from webui_backend.build_mode import feature_flags, is_lite_build
 from webui_backend.dictionary_service import DictionaryService
 from webui_backend.writing_service import WritingAssistantService
 from webui_backend.dbmanager_service import DatabaseManagerService
-from webui_backend.translation_service import TranslationService
 from webui_backend.dictionary_core import DictionaryConfig, HistoryManager
 from webui_backend.writing_config import ConfigManager
 
@@ -43,6 +43,9 @@ class UnifiedAPI:
         self._update_checker = update_checker
         self._app_settings = app_settings
         self._data_root = Path(data_root) if data_root is not None else PROJECT_ROOT
+        self._features = feature_flags()
+        if self._features["lite"] and initial_tab == "translator":
+            initial_tab = "dictionary"
         self.initial_tab = initial_tab if initial_tab in VALID_TABS else "dictionary"
         self.startup_query = (startup_query or "").strip()
         self.startup_exact = bool(startup_exact)
@@ -87,9 +90,13 @@ class UnifiedAPI:
 
     def _open_worker_services(self) -> None:
         self._configure_runtime_paths(self._data_root)
-        self._dictionary_service = DictionaryService()
+        self._dictionary_service = DictionaryService(enable_fuzzy=self._features["fuzzy_search"])
         self._writing_service = WritingAssistantService()
-        self._translation_service = TranslationService(str(self._resolve_dbmanager_db_path()))
+        if self._features["translator"]:
+            from importlib import import_module
+
+            module = import_module("webui_backend.translation_service")
+            self._translation_service = module.TranslationService(str(self._resolve_dbmanager_db_path()))
         db_path = str(self._resolve_dbmanager_db_path())
         self._dbmanager_service = DatabaseManagerService(db_path)
 
@@ -161,6 +168,7 @@ class UnifiedAPI:
             "startup_exact": self.startup_exact, "dictionary_history": dictionary_history,
             "writing_settings": writing_settings, "writing_status": "后台服务正在加载...",
             "app_settings": app_settings,
+            "features": dict(self._features),
         }
 
     def detach_native_window(self, app_id: str, x: Optional[int] = None,
@@ -168,6 +176,8 @@ class UnifiedAPI:
         app = app_id if app_id in VALID_TABS else ""
         if not app:
             return {"ok": False, "message": "未知模块。"}
+        if app == "translator" and not self._features["translator"]:
+            return {"ok": False, "message": "轻量版不包含翻译器。"}
         with self._lock:
             existing = self._detached_windows.get(app)
             if existing is not None:
@@ -220,6 +230,8 @@ class UnifiedAPI:
         app = app_id if app_id in VALID_TABS else ""
         if not app:
             return {"ok": False, "message": "未知模块。"}
+        if app == "translator" and not self._features["translator"]:
+            return {"ok": False, "message": "轻量版不包含翻译器。"}
         with self._lock:
             existing = self._detached_windows.get(app)
         if existing is None:
@@ -272,6 +284,16 @@ class UnifiedAPI:
         return self._invoke(lambda: self._dictionary_service.search(query, bool(exact_match)))
 
     def translator_translate(self, text: str, direction: str = "auto") -> Dict[str, Any]:
+        if not self._features["translator"]:
+            return {
+                "ok": False,
+                "direction": direction or "auto",
+                "source_text": str(text or ""),
+                "result_text": "",
+                "tokens": [],
+                "stats": {"exact": 0, "approximate": 0, "unknown": 0},
+                "message": "轻量版不包含翻译器。",
+            }
         return self._invoke(lambda: self._translation_service.translate(text, direction))
 
     def app_get_settings(self) -> Dict[str, Any]:
@@ -483,3 +505,4 @@ class UnifiedAPI:
                 self._worker_thread.join(timeout=8)
         finally:
             pass
+

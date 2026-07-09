@@ -1,6 +1,7 @@
 async function bootstrap() {
   try {
     var ret = await callApi("bootstrap");
+    applyFeatureFlags(ret?.features || {});
     applyWritingSettings(ret?.writing_settings || state.writing.settings);
     applyAppSettings(ret?.app_settings || state.settings);
     els.writingStatus.textContent = ret?.writing_status || "";
@@ -9,6 +10,7 @@ async function bootstrap() {
     if (!state.isNativeDetached) {
       var initial = APP_IDS.indexOf(ret?.initial_tab) >= 0 && ret?.initial_tab !== "settings"
         ? ret.initial_tab : "dictionary";
+      if (!state.features.translator && initial === "translator") initial = "dictionary";
       activateDocked(initial);
     } else {
       renderDockPanels();
@@ -24,6 +26,20 @@ async function bootstrap() {
   } catch (err) {
     toast("初始化失败：" + err.message, "warn", 3600);
   }
+}
+
+function applyFeatureFlags(features) {
+  state.features = Object.assign({}, state.features, features || {});
+  if (!state.features.translator) {
+    var translatorTab = getTabButton("translator");
+    var translatorPanel = getAppPanel("translator");
+    if (translatorTab) translatorTab.hidden = true;
+    if (translatorPanel) translatorPanel.hidden = true;
+    state.apps.translator.detached = true;
+    if (state.activeDocked === "translator") state.activeDocked = "dictionary";
+  }
+  if (els.dictExact) els.dictExact.disabled = false;
+  if (els.writingDictExact) els.writingDictExact.disabled = false;
 }
 
 function bindGlobal() {

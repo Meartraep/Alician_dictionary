@@ -81,8 +81,8 @@ function renderColoredEditorHtml(text, unknownRanges, lowstatRanges) {
   var html = "", active = 0;
   function closeSpan() { if (active !== 0) html += '</span>'; active = 0; }
   function openSpan(t) {
-    if (t === 2) html += '<span class="mark-unknown" data-hl="unknown" style="color:#b00020;font-weight:700">';
-    if (t === 1) html += '<span class="mark-lowstat" data-hl="lowstat" style="color:#0d4ba8;font-weight:700">';
+    if (t === 2) html += '<span class="mark-unknown" data-hl="unknown" style="color:#b00020;font-weight:700;background:rgba(176,0,32,.12);border-bottom:2px solid rgba(176,0,32,.65)">';
+    if (t === 1) html += '<span class="mark-lowstat" data-hl="lowstat" style="color:#0d4ba8;font-weight:700;background:rgba(13,75,168,.12);border-bottom:2px solid rgba(13,75,168,.6)">';
     active = t;
   }
   for (var i = 0; i < source.length; i++) {
@@ -627,8 +627,9 @@ function bindWritingEvents() {
     var q = String(els.writingDictQuery.value || "").trim();
     if (!q) return;
     saveModuleSnapshot("writing");
+    var exact = Boolean(els.writingDictExact.checked);
     if (state.isNativeDetached) {
-      saveJson(STORAGE_KEYS.dictSnapshot, { query: q, exact: Boolean(els.writingDictExact.checked) });
+      saveJson(STORAGE_KEYS.dictSnapshot, { query: q, exact: exact });
       try {
         await callApi("detach_native_window", "dictionary",
           Math.round(window.screenX + 60), Math.round(window.screenY + 60));
@@ -638,8 +639,8 @@ function bindWritingEvents() {
     state.activeDocked = "dictionary";
     renderDockPanels(); updateTabVisualState();
     els.dictQuery.value = q;
-    els.dictExact.checked = Boolean(els.writingDictExact.checked);
-    await runDictionarySearch(q, els.writingDictExact.checked);
+    els.dictExact.checked = exact;
+    await runDictionarySearch(q, exact);
   });
 }
 
