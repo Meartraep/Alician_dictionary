@@ -12,3 +12,9 @@
 !*.jsonl
 !*.sqlite
 !*.ttf
+
+build/
+dist/
+.webview_profile/
+__pycache__/
+*.log

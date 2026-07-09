@@ -575,7 +575,7 @@ function bindWritingEvents() {
   });
   els.writingExportBtn.addEventListener("click", async function () {
     try {
-      var ret = await callApi("writing_export_text", getEditorText(), "writing_assistant.txt");
+      var ret = await callApi("writing_export_text", getEditorText(), "writing.txt");
       toast(ret?.message || "导出完成", ret?.ok ? "info" : "warn", 3200);
     } catch (err) { toast("导出失败：" + err.message, "warn", 3200); }
   });

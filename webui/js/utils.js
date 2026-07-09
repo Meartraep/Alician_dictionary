@@ -219,7 +219,7 @@ function _alicHoverMove(e) {
 
 function bindAlicHover() {
   var panels = [els.dictLayout, els.dictExamples, els.writingEditor, els.writingSidebar,
-    els.writingExplanation];
+    els.writingExplanation, els.translatorDetails];
   for (var i = 0; i < panels.length; i++) {
     var panel = panels[i];
     if (!panel) continue;

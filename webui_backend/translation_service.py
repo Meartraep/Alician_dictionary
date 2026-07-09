@@ -1,0 +1,663 @@
+from __future__ import annotations
+
+import os
+import re
+import sqlite3
+import threading
+import logging
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Tuple
+
+from webui_backend.dictionary_service import _lev_ratio
+from webui_backend.similarity_matcher import SimilarityMatcher
+
+
+_CJK_RE = re.compile(r"[\u3400-\u9fff]")
+_CJK_RUN_RE = re.compile(r"[\u3400-\u9fff]+")
+_ALICIAN_PART_RE = re.compile(r"[A-Za-z][A-Za-z'-]*|\d+|\s+|[^\sA-Za-z\d]+")
+_CHINESE_PART_RE = re.compile(r"[\u3400-\u9fff]+|[A-Za-z][A-Za-z'-]*|\d+|\s+|[^\sA-Za-z\d\u3400-\u9fff]+")
+_POS_RE = re.compile(
+    r"\b(?:adj|adv|art|conj|interj|n|num|prep|pron|v|vi|vt)\.?",
+    re.IGNORECASE,
+)
+
+
+def _default_db_path() -> str:
+    env_db = os.environ.get("ALICIAN_DB_PATH")
+    if env_db:
+        return os.path.abspath(env_db)
+    return str(Path(__file__).resolve().parent.parent / "translated.db")
+
+
+def _as_int(value: Any) -> int:
+    try:
+        return int(value)
+    except Exception:
+        return 0
+
+
+class TranslationService:
+    """Bidirectional translator between Chinese and Alician.
+
+    Chinese -> Alician currently preserves source token order. The ordering step
+    is deliberately isolated so later grammar-specific reordering can be added
+    without changing matching and unknown-word handling.
+    """
+
+    def __init__(self, db_path: Optional[str] = None) -> None:
+        self._lock = threading.RLock()
+        self._db_path = db_path or _default_db_path()
+        self._conn = sqlite3.connect(self._db_path, check_same_thread=False)
+        self._conn.row_factory = sqlite3.Row
+        self._entries: List[Dict[str, Any]] = []
+        self._word_entries: List[Dict[str, Any]] = []
+        self._word_by_lower: Dict[str, List[Dict[str, Any]]] = {}
+        self._phrases: List[Dict[str, Any]] = []
+        self._term_candidates: Dict[str, List[Dict[str, Any]]] = {}
+        self._max_term_len = 1
+        self._similarity_matcher = SimilarityMatcher()
+        self._similarity_index_built = False
+        self._jieba: Any = None
+        self._load_entries()
+        self._try_load_jieba()
+
+    def close(self) -> None:
+        with self._lock:
+            self._conn.close()
+
+    def translate(self, text: str, direction: str = "auto") -> Dict[str, Any]:
+        source = str(text or "").strip()
+        if not source:
+            return {
+                "ok": False,
+                "direction": direction or "auto",
+                "source_text": "",
+                "result_text": "",
+                "tokens": [],
+                "stats": {"exact": 0, "approximate": 0, "unknown": 0},
+                "message": "请输入要翻译的内容。",
+            }
+
+        normalized_direction = self._normalize_direction(direction, source)
+        with self._lock:
+            if normalized_direction == "alician_to_zh":
+                return self._translate_alician_to_zh(source, normalized_direction)
+            return self._translate_zh_to_alician(source, normalized_direction)
+
+    def _normalize_direction(self, direction: str, text: str) -> str:
+        value = str(direction or "auto").strip()
+        if value in {"zh_to_alician", "alician_to_zh"}:
+            return value
+        return "zh_to_alician" if _CJK_RE.search(text) else "alician_to_zh"
+
+    def _load_entries(self) -> None:
+        cur = self._conn.cursor()
+        cur.execute(
+            "SELECT words, explanation, class, count, variety FROM dictionary "
+            "WHERE words IS NOT NULL AND TRIM(words) <> ''"
+        )
+        for row in cur.fetchall():
+            entry = self._make_entry(
+                kind="word",
+                target=row["words"],
+                explanation=row["explanation"],
+                word_class=row["class"],
+                count=row["count"],
+                variety=row["variety"],
+            )
+            self._entries.append(entry)
+            self._word_entries.append(entry)
+            self._word_by_lower.setdefault(entry["target"].lower(), []).append(entry)
+            self._index_chinese_terms(entry)
+
+        cur.execute(
+            "SELECT PHRASE, explanation, count, variety FROM phrase "
+            "WHERE PHRASE IS NOT NULL AND TRIM(PHRASE) <> ''"
+        )
+        for row in cur.fetchall():
+            entry = self._make_entry(
+                kind="phrase",
+                target=row["PHRASE"],
+                explanation=row["explanation"],
+                word_class="phrase",
+                count=row["count"],
+                variety=row["variety"],
+            )
+            words = [part.lower() for part in re.findall(r"[A-Za-z][A-Za-z'-]*", entry["target"])]
+            if words:
+                entry["phrase_words"] = words
+                self._phrases.append(entry)
+            self._entries.append(entry)
+            self._index_chinese_terms(entry)
+        self._phrases.sort(key=lambda item: len(item.get("phrase_words", [])), reverse=True)
+
+    def _make_entry(
+        self,
+        kind: str,
+        target: Any,
+        explanation: Any,
+        word_class: Any,
+        count: Any,
+        variety: Any,
+    ) -> Dict[str, Any]:
+        return {
+            "kind": kind,
+            "target": str(target or "").strip(),
+            "explanation": str(explanation or "").strip(),
+            "word_class": str(word_class or "").strip(),
+            "count": _as_int(count),
+            "variety": _as_int(variety),
+            "terms": set(),
+        }
+
+    def _try_load_jieba(self) -> None:
+        try:
+            import jieba  # type: ignore
+        except Exception:
+            return
+        try:
+            jieba.setLogLevel(logging.ERROR)
+        except Exception:
+            pass
+        self._jieba = jieba
+        for term in self._term_candidates.keys():
+            if len(term) >= 2:
+                try:
+                    jieba.add_word(term, freq=200000)
+                except Exception:
+                    pass
+
+    def _index_chinese_terms(self, entry: Dict[str, Any]) -> None:
+        for term in self._extract_terms(entry["explanation"]):
+            entry["terms"].add(term)
+            bucket = self._term_candidates.setdefault(term, [])
+            if entry not in bucket:
+                bucket.append(entry)
+            self._max_term_len = max(self._max_term_len, len(term))
+
+    def _extract_terms(self, explanation: str) -> List[str]:
+        source = str(explanation or "")
+        if not source or not _CJK_RE.search(source):
+            return []
+        cleaned = re.sub(r"[（(]\s*\d+\s*[）)]", "，", source)
+        cleaned = _POS_RE.sub("，", cleaned)
+        parts = re.split(r"[,，、;；/|｜\n\r\t]+", cleaned)
+        terms: List[str] = []
+        seen = set()
+
+        def add(raw: str) -> None:
+            term = self._normalize_term(raw)
+            if not term or term in seen:
+                return
+            seen.add(term)
+            terms.append(term)
+
+        for part in parts:
+            add(part)
+            normalized = self._normalize_term(part)
+            if not normalized:
+                continue
+            if normalized.startswith("表") and len(normalized) > 2:
+                add(normalized[1:])
+            if normalized.endswith("的") and len(normalized) > 1:
+                add(normalized[:-1])
+        return terms
+
+    def _normalize_term(self, raw: str) -> str:
+        term = str(raw or "").strip()
+        term = re.sub(r"[\"'“”‘’《》<>【】\[\]{}（）()]", "", term)
+        term = re.sub(r"\s+", "", term)
+        term = term.strip("。.!?？：:；;，,、")
+        if not term or not _CJK_RE.search(term):
+            return ""
+        if term in {"不译", "未找到释义"}:
+            return ""
+        if len(term) > 12:
+            return ""
+        return term
+
+    def _translate_zh_to_alician(self, text: str, direction: str) -> Dict[str, Any]:
+        tokens: List[Dict[str, Any]] = []
+        for part in _CHINESE_PART_RE.findall(text):
+            if not part:
+                continue
+            if part.isspace():
+                tokens.append(self._space_token(part))
+            elif _CJK_RUN_RE.fullmatch(part):
+                tokens.extend(self._translate_chinese_run(part))
+            elif re.fullmatch(r"[^\sA-Za-z\d\u3400-\u9fff]+", part):
+                tokens.append(self._punct_token(part))
+            else:
+                tokens.append(
+                    self._token(
+                        source=part,
+                        target=part,
+                        status="kept",
+                        method="kept",
+                        confidence=1.0,
+                        note="非中文片段已保留。",
+                    )
+                )
+        ordered = self._arrange_chinese_to_alician(tokens)
+        result_text = self._compose_alician_result(ordered)
+        stats = self._stats(ordered)
+        return {
+            "ok": True,
+            "direction": direction,
+            "source_text": text,
+            "result_text": result_text,
+            "tokens": ordered,
+            "stats": stats,
+            "message": self._message(stats),
+        }
+
+    def _arrange_chinese_to_alician(self, tokens: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        return tokens
+
+    def _translate_chinese_run(self, text: str) -> List[Dict[str, Any]]:
+        tokens: List[Dict[str, Any]] = []
+        i = 0
+        while i < len(text):
+            match = self._find_longest_term(text, i)
+            if match:
+                term, candidates = match
+                tokens.append(self._entry_to_token(term, self._choose_candidate(candidates, term), "exact"))
+                i += len(term)
+                continue
+
+            start = i
+            i += 1
+            while i < len(text) and self._find_longest_term(text, i) is None:
+                i += 1
+            tokens.extend(self._translate_unknown_chinese_segment(text[start:i], allow_jieba=True))
+        return tokens
+
+    def _find_longest_term(self, text: str, start: int) -> Optional[Tuple[str, List[Dict[str, Any]]]]:
+        max_len = min(self._max_term_len, len(text) - start)
+        for size in range(max_len, 0, -1):
+            term = text[start:start + size]
+            candidates = self._term_candidates.get(term)
+            if candidates:
+                return term, candidates
+        return None
+
+    def _translate_unknown_chinese_segment(
+        self, segment: str, allow_jieba: bool,
+    ) -> List[Dict[str, Any]]:
+        if not segment:
+            return []
+
+        if allow_jieba and self._jieba is not None and len(segment) > 1:
+            try:
+                parts = [part for part in self._jieba.cut(segment) if part.strip()]
+            except Exception:
+                parts = []
+            if len(parts) > 1 and "".join(parts) == segment:
+                split_tokens: List[Dict[str, Any]] = []
+                for part in parts:
+                    exact = self._term_candidates.get(part)
+                    if exact:
+                        split_tokens.append(self._entry_to_token(part, self._choose_candidate(exact, part), "exact"))
+                    else:
+                        split_tokens.extend(self._translate_unknown_chinese_segment(part, allow_jieba=False))
+                return split_tokens
+
+        candidate, method, confidence, alternatives = self._find_chinese_candidate(segment)
+        if candidate:
+            token = self._entry_to_token(segment, candidate, "approximate")
+            token["method"] = method
+            token["confidence"] = round(confidence, 4)
+            token["alternatives"] = alternatives
+            token["note"] = "爱丽丝语没有直接词条，已用词义近似匹配。"
+            return [token]
+
+        return [
+            self._token(
+                source=segment,
+                target=f"〔{segment}〕",
+                status="unknown",
+                method="missing",
+                confidence=0.0,
+                note="未找到可用的爱丽丝语对应词。",
+            )
+        ]
+
+    def _find_chinese_candidate(
+        self, query: str,
+    ) -> Tuple[Optional[Dict[str, Any]], str, float, List[Dict[str, Any]]]:
+        scored: List[Tuple[float, Dict[str, Any]]] = []
+        query_set = set(query)
+        for entry in self._entries:
+            score = 0.0
+            explanation = entry["explanation"]
+            terms = entry.get("terms", set())
+            if query in terms:
+                score = max(score, 95.0)
+            if explanation == query:
+                score = max(score, 92.0)
+            elif query and query in explanation:
+                score = max(score, 64.0 - min(len(explanation), 40) * 0.3)
+            for term in terms:
+                if len(term) < 2 and len(query) > 1:
+                    continue
+                if term and term in query:
+                    coverage = len(term) / max(len(query), 1)
+                    score = max(score, 34.0 + coverage * 30.0)
+                elif query in term:
+                    coverage = len(query) / max(len(term), 1)
+                    score = max(score, 28.0 + coverage * 28.0)
+            if score <= 0 and len(query) >= 2 and query_set:
+                exp_chars = {ch for ch in explanation if _CJK_RE.match(ch)}
+                if exp_chars:
+                    overlap = len(query_set & exp_chars) / max(len(query_set), 1)
+                    if overlap >= 0.6:
+                        score = 22.0 + overlap * 18.0
+            if score > 0:
+                score += min(entry["count"], 20) * 0.08 + min(entry["variety"], 10) * 0.12
+                if entry["kind"] == "phrase" and len(query) >= 2:
+                    score += 3.0
+                scored.append((score, entry))
+        scored.sort(key=lambda item: item[0], reverse=True)
+        threshold = 50.0 if len(query) == 1 else 36.0
+        if scored and scored[0][0] >= threshold:
+            alternatives = [self._alternative(item[1], item[0] / 100.0) for item in scored[:5]]
+            if len(alternatives) < 5:
+                seen = {item.get("target") for item in alternatives}
+                for item in self._collect_semantic_alternatives(query, 5):
+                    if item.get("target") in seen:
+                        continue
+                    alternatives.append(item)
+                    seen.add(item.get("target"))
+                    if len(alternatives) >= 5:
+                        break
+            return scored[0][1], "meaning_overlap", min(0.88, scored[0][0] / 100.0), alternatives
+
+        semantic = self._find_semantic_candidate(query)
+        if semantic[0] is not None:
+            return semantic
+        return None, "missing", 0.0, []
+
+    def _find_semantic_candidate(
+        self, query: str,
+    ) -> Tuple[Optional[Dict[str, Any]], str, float, List[Dict[str, Any]]]:
+        alternatives = self._collect_semantic_alternatives(query, 5)
+        if alternatives:
+            entry = self._best_word_entry(str(alternatives[0].get("target", "")))
+            if entry is not None:
+                score = float(alternatives[0].get("score") or 0.0)
+                confidence = min(0.78, max(0.45, score if score <= 1 else 0.62))
+                return entry, "text2vec", confidence, alternatives
+        return None, "missing", 0.0, alternatives
+
+    def _collect_semantic_alternatives(self, query: str, limit: int) -> List[Dict[str, Any]]:
+        if not query:
+            return []
+        self._ensure_similarity_index()
+        suggestions = self._similarity_matcher.find_similar(query, top_k=max(8, limit * 2))
+        alternatives: List[Dict[str, Any]] = []
+        for suggestion in suggestions:
+            score = float(suggestion.get("similarity") or 0.0)
+            for word in suggestion.get("words") or []:
+                entry = self._best_word_entry(str(word))
+                if not entry:
+                    continue
+                if any(item.get("target") == entry["target"] for item in alternatives):
+                    continue
+                alternatives.append(self._alternative(entry, score))
+                if len(alternatives) >= limit:
+                    break
+            if len(alternatives) >= limit:
+                break
+        return alternatives
+
+    def _ensure_similarity_index(self) -> None:
+        if self._similarity_index_built:
+            return
+        pairs = [(entry["target"], entry["explanation"]) for entry in self._word_entries]
+        self._similarity_matcher.build_index(pairs)
+        self._similarity_index_built = True
+
+    def _choose_candidate(self, candidates: List[Dict[str, Any]], query: str) -> Dict[str, Any]:
+        ranked = sorted(
+            candidates,
+            key=lambda entry: (
+                query in entry.get("terms", set()),
+                entry["explanation"] == query,
+                entry["kind"] == "phrase",
+                entry["count"],
+                entry["variety"],
+                -len(entry["target"]),
+            ),
+            reverse=True,
+        )
+        return ranked[0]
+
+    def _translate_alician_to_zh(self, text: str, direction: str) -> Dict[str, Any]:
+        parts = _ALICIAN_PART_RE.findall(text)
+        tokens: List[Dict[str, Any]] = []
+        i = 0
+        while i < len(parts):
+            part = parts[i]
+            if part.isspace():
+                tokens.append(self._space_token(part))
+                i += 1
+                continue
+            if not re.fullmatch(r"[A-Za-z][A-Za-z'-]*", part):
+                tokens.append(self._punct_token(part))
+                i += 1
+                continue
+
+            phrase, end_index = self._match_phrase(parts, i)
+            if phrase:
+                tokens.append(self._entry_to_chinese_token(phrase, phrase["target"], "exact", "phrase"))
+                i = end_index
+                continue
+
+            entry = self._best_word_entry(part)
+            if entry:
+                tokens.append(self._entry_to_chinese_token(entry, part, "exact", "word"))
+                i += 1
+                continue
+
+            similar_entry, score = self._find_similar_alician_word(part)
+            if similar_entry:
+                token = self._entry_to_chinese_token(similar_entry, part, "approximate", "spelling_similarity")
+                token["confidence"] = round(score, 4)
+                token["note"] = f"未找到精确词条，按拼写相似匹配到 {similar_entry['target']}。"
+                token["alternatives"] = [self._alternative(similar_entry, score)]
+                tokens.append(token)
+                i += 1
+                continue
+
+            tokens.append(
+                self._token(
+                    source=part,
+                    target=f"〔{part}〕",
+                    status="unknown",
+                    method="missing",
+                    confidence=0.0,
+                    note="未在爱丽丝语词典中找到该词。",
+                )
+            )
+            i += 1
+
+        result_text = self._compose_chinese_result(tokens)
+        stats = self._stats(tokens)
+        return {
+            "ok": True,
+            "direction": direction,
+            "source_text": text,
+            "result_text": result_text,
+            "tokens": tokens,
+            "stats": stats,
+            "message": self._message(stats),
+        }
+
+    def _match_phrase(
+        self, parts: List[str], start: int,
+    ) -> Tuple[Optional[Dict[str, Any]], int]:
+        for phrase in self._phrases:
+            words = phrase.get("phrase_words") or []
+            pos = start
+            matched = True
+            for expected in words:
+                while pos < len(parts) and parts[pos].isspace():
+                    pos += 1
+                if pos >= len(parts) or parts[pos].lower() != expected:
+                    matched = False
+                    break
+                pos += 1
+            if matched:
+                return phrase, pos
+        return None, start
+
+    def _best_word_entry(self, word: str) -> Optional[Dict[str, Any]]:
+        candidates = self._word_by_lower.get(str(word or "").lower()) or []
+        if not candidates:
+            return None
+        return sorted(
+            candidates,
+            key=lambda entry: (entry["count"], entry["variety"], -len(entry["explanation"])),
+            reverse=True,
+        )[0]
+
+    def _find_similar_alician_word(self, word: str) -> Tuple[Optional[Dict[str, Any]], float]:
+        best_entry = None
+        best_score = 0.0
+        query = str(word or "").lower()
+        if not query:
+            return None, 0.0
+        for entry in self._word_entries:
+            score = _lev_ratio(query, entry["target"].lower())
+            if score > best_score:
+                best_score = score
+                best_entry = entry
+        if best_entry and best_score >= 0.72:
+            return best_entry, best_score
+        return None, 0.0
+
+    def _entry_to_token(self, source: str, entry: Dict[str, Any], status: str) -> Dict[str, Any]:
+        method = "dictionary_term" if status == "exact" else "meaning_overlap"
+        return self._token(
+            source=source,
+            target=entry["target"],
+            status=status,
+            method=method,
+            confidence=1.0 if status == "exact" else 0.7,
+            explanation=entry["explanation"],
+            word_class=entry["word_class"],
+            count=entry["count"],
+            variety=entry["variety"],
+            alternatives=[self._alternative(entry, 1.0)],
+            note="词典释义直接命中。" if status == "exact" else "",
+        )
+
+    def _entry_to_chinese_token(
+        self, entry: Dict[str, Any], source: str, status: str, method: str,
+    ) -> Dict[str, Any]:
+        return self._token(
+            source=source,
+            target=entry["explanation"] or f"〔{source}〕",
+            status=status,
+            method=method,
+            confidence=1.0 if status == "exact" else 0.7,
+            explanation=entry["explanation"],
+            word_class=entry["word_class"],
+            count=entry["count"],
+            variety=entry["variety"],
+            alternatives=[self._alternative(entry, 1.0)],
+            note="词典词条命中。" if status == "exact" else "",
+        )
+
+    def _token(
+        self,
+        source: str,
+        target: str,
+        status: str,
+        method: str,
+        confidence: float,
+        explanation: str = "",
+        word_class: str = "",
+        count: int = 0,
+        variety: int = 0,
+        alternatives: Optional[List[Dict[str, Any]]] = None,
+        note: str = "",
+    ) -> Dict[str, Any]:
+        return {
+            "source": source,
+            "target": target,
+            "status": status,
+            "method": method,
+            "confidence": round(float(confidence), 4),
+            "explanation": explanation,
+            "word_class": word_class,
+            "count": int(count),
+            "variety": int(variety),
+            "alternatives": alternatives or [],
+            "note": note,
+        }
+
+    def _space_token(self, source: str) -> Dict[str, Any]:
+        return self._token(source, source, "space", "space", 1.0)
+
+    def _punct_token(self, source: str) -> Dict[str, Any]:
+        return self._token(source, source, "punct", "punct", 1.0)
+
+    def _alternative(self, entry: Dict[str, Any], score: float) -> Dict[str, Any]:
+        return {
+            "target": entry["target"],
+            "explanation": entry["explanation"],
+            "word_class": entry["word_class"],
+            "score": round(float(score), 4),
+        }
+
+    def _compose_alician_result(self, tokens: List[Dict[str, Any]]) -> str:
+        out: List[str] = []
+        for token in tokens:
+            status = token.get("status")
+            target = str(token.get("target") or "")
+            if not target:
+                continue
+            if status == "space":
+                if out and out[-1] not in {" ", "\n"}:
+                    out.append(" ")
+                continue
+            if status == "punct":
+                while out and out[-1] == " ":
+                    out.pop()
+                out.append(target)
+                out.append(" ")
+                continue
+            if out and out[-1] not in {" ", "\n"}:
+                out.append(" ")
+            out.append(target)
+        return "".join(out).strip()
+
+    def _compose_chinese_result(self, tokens: List[Dict[str, Any]]) -> str:
+        out: List[str] = []
+        for token in tokens:
+            status = token.get("status")
+            target = str(token.get("target") or "")
+            if status == "space":
+                continue
+            out.append(target)
+        return "".join(out).strip()
+
+    def _stats(self, tokens: List[Dict[str, Any]]) -> Dict[str, int]:
+        exact = approximate = unknown = 0
+        for token in tokens:
+            status = token.get("status")
+            if status == "exact":
+                exact += 1
+            elif status == "approximate":
+                approximate += 1
+            elif status == "unknown":
+                unknown += 1
+        return {"exact": exact, "approximate": approximate, "unknown": unknown}
+
+    def _message(self, stats: Dict[str, int]) -> str:
+        if stats.get("unknown"):
+            return "翻译完成，但仍有词未解决。"
+        if stats.get("approximate"):
+            return "翻译完成，其中部分词使用了近似匹配。"
+        return "翻译完成。"

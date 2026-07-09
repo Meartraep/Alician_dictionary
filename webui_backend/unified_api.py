@@ -15,14 +15,20 @@ import webview
 from webui_backend.dictionary_service import DictionaryService
 from webui_backend.writing_service import WritingAssistantService
 from webui_backend.dbmanager_service import DatabaseManagerService
-from dictionary_app.history_manager import HistoryManager
-from writing_assistant.config_manager import ConfigManager
+from webui_backend.translation_service import TranslationService
+from webui_backend.dictionary_core import DictionaryConfig, HistoryManager
+from webui_backend.writing_config import ConfigManager
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
-VALID_TABS = {"dictionary", "writing", "dbmanager"}
-DETACHED_TITLES = {"dictionary": "词典工具", "writing": "写作助手", "dbmanager": "数据库管理"}
-DETACHED_WIDTHS = {"dictionary": 980, "writing": 1040, "dbmanager": 1100}
+VALID_TABS = {"dictionary", "writing", "translator", "dbmanager"}
+DETACHED_TITLES = {
+    "dictionary": "词典工具",
+    "writing": "写作助手",
+    "translator": "翻译器",
+    "dbmanager": "数据库管理",
+}
+DETACHED_WIDTHS = {"dictionary": 980, "writing": 1040, "translator": 960, "dbmanager": 1100}
 
 
 class UnifiedAPI:
@@ -45,6 +51,7 @@ class UnifiedAPI:
         self._closed = False
         self._dictionary_service: Any = None
         self._writing_service: Any = None
+        self._translation_service: Any = None
         self._dbmanager_service: Any = None
         _Event = threading.Event
         self._tasks: "queue.Queue[Optional[Tuple[Any, Tuple[Any, ...], Dict[str, Any], Dict[str, Any], _Event]]]" = queue.Queue()
@@ -71,13 +78,8 @@ class UnifiedAPI:
     def _configure_runtime_paths(self, data_root: Path) -> None:
         db_path = Path(data_root) / "translated.db"
         os.environ["ALICIAN_DB_PATH"] = str(db_path)
-        try:
-            from dictionary_app.config import Config as DictionaryConfig
-
-            DictionaryConfig.DB_NAME = str(db_path)
-            DictionaryConfig.CURRENT_DB = str(db_path)
-        except Exception:
-            pass
+        DictionaryConfig.DB_NAME = str(db_path)
+        DictionaryConfig.CURRENT_DB = str(db_path)
         if self._app_settings is not None:
             self._app_settings.db_path = db_path
         if self._update_checker is not None and hasattr(self._update_checker, "local_db_path"):
@@ -87,11 +89,12 @@ class UnifiedAPI:
         self._configure_runtime_paths(self._data_root)
         self._dictionary_service = DictionaryService()
         self._writing_service = WritingAssistantService()
+        self._translation_service = TranslationService(str(self._resolve_dbmanager_db_path()))
         db_path = str(self._resolve_dbmanager_db_path())
         self._dbmanager_service = DatabaseManagerService(db_path)
 
     def _close_worker_services(self) -> None:
-        for svc in ("_dictionary_service", "_writing_service", "_dbmanager_service"):
+        for svc in ("_dictionary_service", "_writing_service", "_translation_service", "_dbmanager_service"):
             try:
                 current = getattr(self, svc, None)
                 if current is not None:
@@ -268,6 +271,9 @@ class UnifiedAPI:
     def writing_query_dictionary(self, query: str, exact_match: bool = False) -> Dict[str, Any]:
         return self._invoke(lambda: self._dictionary_service.search(query, bool(exact_match)))
 
+    def translator_translate(self, text: str, direction: str = "auto") -> Dict[str, Any]:
+        return self._invoke(lambda: self._translation_service.translate(text, direction))
+
     def app_get_settings(self) -> Dict[str, Any]:
         if self._app_settings is None:
             return {"auto_update": True, "auto_update_status": "", "alic_font": False, "alic_hover_enabled": True, "alic_hover_delay": 300, "update_check_status": "就绪"}
@@ -302,9 +308,9 @@ class UnifiedAPI:
         return self._update_checker.manual_check_for_update()
 
     def _writing_export_text_impl(self, content: str,
-                                  suggested_name: str = "writing_assistant.txt") -> Dict[str, Any]:
+                                  suggested_name: str = "writing.txt") -> Dict[str, Any]:
         text = str(content or "")
-        name = str(suggested_name or "writing_assistant.txt").strip() or "writing_assistant.txt"
+        name = str(suggested_name or "writing.txt").strip() or "writing.txt"
         if not name.lower().endswith(".txt"):
             name += ".txt"
         root = tk.Tk()
@@ -329,7 +335,7 @@ class UnifiedAPI:
             return {"ok": False, "path": "", "message": f"导出失败: {exc}"}
 
     def writing_export_text(self, content: str,
-                            suggested_name: str = "writing_assistant.txt") -> Dict[str, Any]:
+                            suggested_name: str = "writing.txt") -> Dict[str, Any]:
         return self._invoke(self._writing_export_text_impl, content, suggested_name)
 
     def dbmanager_get_tables(self) -> List[str]:

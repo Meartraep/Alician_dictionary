@@ -100,13 +100,10 @@ def main(
 
     app_settings.db_path = local_db_path
     os.environ["ALICIAN_DB_PATH"] = str(local_db_path)
-    try:
-        from dictionary_app.config import Config as DictionaryConfig
+    from webui_backend.dictionary_core import DictionaryConfig
 
-        DictionaryConfig.DB_NAME = str(local_db_path)
-        DictionaryConfig.CURRENT_DB = str(local_db_path)
-    except Exception:
-        pass
+    DictionaryConfig.DB_NAME = str(local_db_path)
+    DictionaryConfig.CURRENT_DB = str(local_db_path)
 
     update_checker = None
     from update_checker import UpdateChecker

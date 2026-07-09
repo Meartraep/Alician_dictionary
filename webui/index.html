@@ -13,6 +13,7 @@
       <div id="tabBar" class="tab-bar" aria-label="主标签栏">
         <button class="tab-item active" type="button" draggable="true" data-app="dictionary">词典工具</button>
         <button class="tab-item" type="button" draggable="true" data-app="writing">写作助手</button>
+        <button class="tab-item" type="button" draggable="true" data-app="translator">翻译器</button>
         <button class="tab-item" type="button" draggable="true" data-app="dbmanager">数据库管理</button>
         <button class="tab-item" type="button" draggable="false" data-app="settings">设置</button>
       </div>
@@ -114,6 +115,32 @@
           </section>
         </section>
 
+        <section id="panel-translator" class="app-panel" data-app-panel="translator">
+          <div class="panel-title">翻译器</div>
+          <div class="translator-toolbar card">
+            <select id="translatorDirection" aria-label="翻译方向">
+              <option value="zh_to_alician">中文 → 爱丽丝语</option>
+              <option value="alician_to_zh">爱丽丝语 → 中文</option>
+              <option value="auto">自动识别</option>
+            </select>
+            <button id="translatorSwapBtn" type="button" class="ghost">切换方向</button>
+            <button id="translatorTranslateBtn" type="button">翻译</button>
+            <div id="translatorStatus" class="status-line"></div>
+          </div>
+          <div class="translator-layout">
+            <div class="translator-pane card">
+              <div class="panel-subtitle">输入</div>
+              <textarea id="translatorInput" spellcheck="false" placeholder="输入中文自然语言，或输入爱丽丝语文本..."></textarea>
+            </div>
+            <div class="translator-pane translator-result-pane card">
+              <div class="panel-subtitle">结果</div>
+              <textarea id="translatorOutput" readonly spellcheck="false" placeholder="翻译结果会显示在这里"></textarea>
+              <div id="translatorSplit" class="splitter horizontal" title="拖动调整结果与候选词列表占比"></div>
+              <div id="translatorDetails" class="translator-details scroll-panel"></div>
+            </div>
+          </div>
+        </section>
+
         <section id="panel-dbmanager" class="app-panel" data-app-panel="dbmanager">
           <div class="panel-title">数据库管理</div>
           <div class="dbmanager-layout">
@@ -169,7 +196,7 @@
             <label class="setting-row">
               <span>
                 <strong>显示爱丽丝语原字体</strong>
-                <span id="alicFontNote" class="setting-note">仅词典/写作面板中生效</span>
+                <span id="alicFontNote" class="setting-note">仅词典/写作/翻译器面板中生效</span>
               </span>
               <input id="alicFontToggle" type="checkbox" role="switch" />
             </label>
@@ -214,6 +241,7 @@
   <script src="./js/tabs.js"></script>
   <script src="./js/dictionary.js"></script>
   <script src="./js/writing.js"></script>
+  <script src="./js/translator.js"></script>
   <script src="./js/dbmanager.js"></script>
   <script src="./js/main.js"></script>
 </body>

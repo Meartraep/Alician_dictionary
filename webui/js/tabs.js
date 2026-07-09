@@ -11,6 +11,8 @@ function bindBaseElements() {
     "settingsStrictCase", "settingsUndo", "settingsDictionaryFormat", "settingsDictionarySeparators",
     "excludedInput", "excludedAddBtn",
     "excludedList", "settingsSaveBtn", "settingsCloseBtn",
+    "translatorDirection", "translatorSwapBtn", "translatorTranslateBtn",
+    "translatorInput", "translatorOutput", "translatorSplit", "translatorDetails", "translatorStatus",
     "autoUpdateToggle", "alicFontToggle", "alicHoverToggle", "alicHoverDelaySlider", "alicHoverDelayLabel",
     "checkUpdateBtn", "updateCheckStatus", "forceDownloadBtn",
     "dbmTableList", "dbmRefreshBtn", "dbmSearchInput", "dbmSearchBtn",
@@ -115,6 +117,15 @@ function saveModuleSnapshot(appId) {
       text: getEditorText(),
       dictQuery: els.writingDictQuery?.value || "",
       dictExact: Boolean(els.writingDictExact?.checked),
+    });
+    return;
+  }
+  if (appId === "translator") {
+    saveJson(STORAGE_KEYS.translatorSnapshot, {
+      direction: els.translatorDirection?.value || "zh_to_alician",
+      input: els.translatorInput?.value || "",
+      output: els.translatorOutput?.value || "",
+      result: state.translator.lastResult || null,
     });
   }
 }

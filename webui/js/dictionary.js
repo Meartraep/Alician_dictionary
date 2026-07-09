@@ -344,5 +344,17 @@ async function restoreModuleSnapshot(appId, shouldRunSearch) {
     if (typeof snap.dictQuery === "string") els.writingDictQuery.value = snap.dictQuery;
     els.writingDictExact.checked = Boolean(snap.dictExact);
     if (shouldRunSearch) await runWritingCheck(true);
+    return;
+  }
+  if (appId === "translator") {
+    var trSnap = loadJson(STORAGE_KEYS.translatorSnapshot, {});
+    if (typeof trSnap.direction === "string") {
+      els.translatorDirection.value = trSnap.direction;
+      state.translator.direction = trSnap.direction;
+    }
+    if (typeof trSnap.input === "string") els.translatorInput.value = trSnap.input;
+    if (typeof trSnap.output === "string") els.translatorOutput.value = trSnap.output;
+    state.translator.lastResult = trSnap.result || null;
+    renderTranslatorResult(state.translator.lastResult);
   }
 }

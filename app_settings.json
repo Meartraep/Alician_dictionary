@@ -6,7 +6,5 @@
   "alic_font": false,
   "alic_hover_enabled": false,
   "alic_hover_delay": 0,
-  "update_check_status": "正在强制下载云端数据库...",
-  "data_dir": "",
-  "_last_data_root": "C:\\Users\\meart\\Desktop\\Alician_dictionary-26_2_18"
+  "update_check_status": "云端版本未变化，无需下载"
 }

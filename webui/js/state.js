@@ -1,8 +1,9 @@
-var APP_IDS = ["dictionary", "writing", "dbmanager", "settings"];
-var DETACHABLE_APP_IDS = ["dictionary", "writing", "dbmanager"];
+var APP_IDS = ["dictionary", "writing", "translator", "dbmanager", "settings"];
+var DETACHABLE_APP_IDS = ["dictionary", "writing", "translator", "dbmanager"];
 var APP_TITLES = {
   dictionary: "词典工具",
   writing: "写作助手",
+  translator: "翻译器",
   dbmanager: "数据库管理",
   settings: "设置",
 };
@@ -13,6 +14,8 @@ var STORAGE_KEYS = {
   writingTop: "ui.writing.topRatio",
   dictSnapshot: "ui.dictionary.snapshot",
   writingSnapshot: "ui.writing.snapshot",
+  translatorSnapshot: "ui.translator.snapshot",
+  translatorOutput: "ui.translator.outputRatio",
 };
 
 function getWindowParams() {
@@ -33,6 +36,7 @@ var state = {
   apps: {
     dictionary: { detached: false, floatingWindow: null },
     writing: { detached: false, floatingWindow: null },
+    translator: { detached: false, floatingWindow: null },
     dbmanager: { detached: false, floatingWindow: null },
     settings: { detached: false, floatingWindow: null },
   },
@@ -50,6 +54,7 @@ var state = {
     },
     selectedSidebarKey: "", infoPopup: null, isComposing: false,
   },
+  translator: { direction: "zh_to_alician", lastResult: null, isBusy: false },
   settings: { alicFont: false, alicHoverEnabled: true, alicHoverDelay: 300 },
 };
 

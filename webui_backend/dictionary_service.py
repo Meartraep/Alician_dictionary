@@ -6,10 +6,7 @@ import threading
 from collections import defaultdict
 from typing import Any, Dict, List, Tuple
 
-from dictionary_app.config import Config as DictionaryConfig
-from dictionary_app.database_handler import DatabaseHandler
-from dictionary_app.history_manager import HistoryManager
-from dictionary_app.text_processor import TextProcessor
+from webui_backend.dictionary_core import DatabaseHandler, DictionaryConfig, HistoryManager, TextProcessor
 from webui_backend.similarity_matcher import SimilarityMatcher
 
 logger = logging.getLogger(__name__)

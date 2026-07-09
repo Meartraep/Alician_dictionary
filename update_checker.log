@@ -855,3 +855,9 @@
 2026-06-29 21:36:20,932 - ERROR - 从https://raw.githubusercontent.com/Meartraep/Alician_dictionary/main/translated.db下载失败: HTTPSConnectionPool(host='raw.githubusercontent.com', port=443): Read timed out. (read timeout=15)
 2026-06-29 21:36:50,954 - ERROR - 从https://mirror.ghproxy.com/https://raw.githubusercontent.com/Meartraep/Alician_dictionary/main/translated.db下载失败: HTTPSConnectionPool(host='mirror.ghproxy.com', port=443): Max retries exceeded with url: /https://raw.githubusercontent.com/Meartraep/Alician_dictionary/main/translated.db (Caused by ConnectTimeoutError(<HTTPSConnection(host='mirror.ghproxy.com', port=443) at 0x2675e27dd50>, 'Connection to mirror.ghproxy.com timed out. (connect timeout=15)'))
 2026-06-29 21:36:50,954 - INFO - 状态报告: 下载失败：网络错误
+2026-07-06 11:23:55,236 - INFO - 状态报告: 正在检查更新...
+2026-07-06 11:23:55,239 - INFO - 手动检查更新开始
+2026-07-06 11:23:57,452 - INFO - 从https://api.github.com/repos/Meartraep/Alician_dictionary/contents/translated.db获取SHA值成功: a120380487e40929a2f41ba8eed6647138045195
+2026-07-06 11:23:57,455 - INFO - 状态报告: 正在下载云端数据库...
+2026-07-06 11:23:59,112 - INFO - 从https://raw.githubusercontent.com/Meartraep/Alician_dictionary/main/translated.db下载成功，大小: 716800字节
+2026-07-06 11:23:59,114 - INFO - 状态报告: 云端版本未变化，无需下载

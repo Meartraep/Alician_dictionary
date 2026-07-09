@@ -5,10 +5,10 @@ import threading
 from typing import Any, Dict, List, Optional, Tuple
 
 from webui_backend.dictionary_service import _lev_ratio
-from writing_assistant.config_manager import ConfigManager
-from writing_assistant.database_manager import DatabaseManager
-from writing_assistant.highlight_manager import HighlightManager
-from writing_assistant.word_checker import WordChecker
+from webui_backend.writing_config import ConfigManager
+from webui_backend.writing_database import DatabaseManager
+from webui_backend.writing_highlight import HighlightManager
+from webui_backend.writing_checker import WordChecker
 
 
 class VirtualTextArea:

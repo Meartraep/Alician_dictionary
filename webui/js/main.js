@@ -7,7 +7,8 @@ async function bootstrap() {
     renderDictionaryHistory(ret?.dictionary_history || []);
 
     if (!state.isNativeDetached) {
-      var initial = ret?.initial_tab === "writing" ? "writing" : "dictionary";
+      var initial = APP_IDS.indexOf(ret?.initial_tab) >= 0 && ret?.initial_tab !== "settings"
+        ? ret.initial_tab : "dictionary";
       activateDocked(initial);
     } else {
       renderDockPanels();
@@ -39,9 +40,16 @@ function bindGlobal() {
       restoreModuleSnapshot("writing", false);
       return;
     }
+    if (e.key === STORAGE_KEYS.translatorSnapshot && state.isNativeDetached && state.nativeAppId === "translator") {
+      restoreModuleSnapshot("translator", false);
+      return;
+    }
     if (state.isNativeDetached) return;
     if (e.key === STORAGE_KEYS.writingSnapshot && state.apps.writing.detached) {
       restoreModuleSnapshot("writing", false);
+    }
+    if (e.key === STORAGE_KEYS.translatorSnapshot && state.apps.translator.detached) {
+      restoreModuleSnapshot("translator", false);
     }
   });
 }
@@ -54,6 +62,7 @@ function init() {
   bindSplitters();
   bindDictionaryEvents();
   bindWritingEvents();
+  bindTranslatorEvents();
   bindAppSettingsEvents();
   bindDbmanagerEvents();
   bindAlicHover();
