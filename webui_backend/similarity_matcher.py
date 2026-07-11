@@ -9,6 +9,8 @@ from typing import Any, Dict, List, Tuple
 logger = logging.getLogger(__name__)
 
 _EXTERNAL_PATH_ENV = "ALICIAN_EXTERNAL_LIB_PATH"
+_MODEL_PATH_ENV = "ALICIAN_TEXT2VEC_MODEL_PATH"
+_BUNDLED_MODEL_DIR = "text2vec_model"
 
 
 def _add_optional_dependency_paths() -> None:
@@ -26,15 +28,19 @@ def _add_optional_dependency_paths() -> None:
             ]
         )
 
-    try:
-        candidates.append(site.getusersitepackages())
-    except Exception:
-        pass
+    # A frozen Full build must be self-contained. Do not silently borrow a
+    # system Python installation during validation or on end-user machines.
+    # Explicit sibling/external paths above remain available for diagnostics.
+    if not exe_dir:
+        try:
+            candidates.append(site.getusersitepackages())
+        except Exception:
+            pass
 
-    try:
-        candidates.extend(site.getsitepackages())
-    except Exception:
-        pass
+        try:
+            candidates.extend(site.getsitepackages())
+        except Exception:
+            pass
 
     for path in candidates:
         if path and os.path.isdir(path) and path not in sys.path:
@@ -45,6 +51,20 @@ _MODEL_NAME = "shibing624/text2vec-base-chinese"
 _OPTIONAL_DEPS_CHECKED = False
 _SENTENCE_MODEL_CLS: Any = None
 _NP: Any = None
+
+
+def _model_path() -> str:
+    configured_path = os.environ.get(_MODEL_PATH_ENV, "").strip()
+    if configured_path and os.path.isdir(configured_path):
+        return configured_path
+
+    if getattr(sys, "frozen", False):
+        resource_root = getattr(sys, "_MEIPASS", os.path.dirname(sys.executable))
+        bundled_path = os.path.join(resource_root, _BUNDLED_MODEL_DIR)
+        if os.path.isfile(os.path.join(bundled_path, "config.json")):
+            return bundled_path
+
+    return _MODEL_NAME
 
 
 def _load_optional_dependencies() -> bool:
@@ -94,8 +114,11 @@ class SimilarityMatcher:
         if not _load_optional_dependencies():
             return False
         try:
-            self._model = _SENTENCE_MODEL_CLS(_MODEL_NAME)
-            logger.info("text2vec SentenceModel 加载成功")
+            model_path = _model_path()
+            # Full builds bundle a CPU model. Pinning inference to CPU prevents
+            # target machines from requiring CUDA or other GPU runtimes.
+            self._model = _SENTENCE_MODEL_CLS(model_path, device="cpu")
+            logger.info(f"text2vec SentenceModel 加载成功: {model_path}")
             return True
         except Exception as e:
             logger.warning(f"text2vec 模型加载失败: {e}")

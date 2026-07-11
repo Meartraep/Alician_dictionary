@@ -1,5 +1,6 @@
 import os
 import sys
+import json
 from pathlib import Path
 
 def _get_app_root() -> Path:
@@ -16,6 +17,41 @@ def _get_resource_root() -> Path:
 
 APP_ROOT = _get_app_root()
 RESOURCE_ROOT = _get_resource_root()
+
+
+def _run_text2vec_self_test(output_path: str) -> int:
+    payload = {"ok": False, "available": False, "suggestions": []}
+    try:
+        from webui_backend.similarity_matcher import SimilarityMatcher
+
+        matcher = SimilarityMatcher()
+        matcher.build_index(
+            [
+                ("happy-test", "开心快乐"),
+                ("sad-test", "悲伤难过"),
+            ]
+        )
+        suggestions = matcher.find_similar("快乐", top_k=2)
+        payload.update(
+            ok=bool(matcher.available and suggestions),
+            available=matcher.available,
+            suggestions=suggestions,
+        )
+    except Exception as exc:
+        payload["error"] = f"{type(exc).__name__}: {exc}"
+
+    try:
+        Path(output_path).write_text(
+            json.dumps(payload, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+    except Exception:
+        return 2
+    return 0 if payload["ok"] else 1
+
+
+if len(sys.argv) >= 3 and sys.argv[1] == '--text2vec-self-test':
+    sys.exit(_run_text2vec_self_test(sys.argv[2]))
 
 # Frozen subprocess dispatch — re-launched by the packaged exe to run
 # modal tools (db diff dialog / db exporter) in isolated processes.
