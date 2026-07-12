@@ -41,7 +41,8 @@ class DatabaseManagerService:
                 fields = ["rowid"] + fields
             return {"ok": True, "data": [dict(zip(fields, row)) for row in rows], "fields": fields, "table": tn}
 
-    def search_records(self, table_name: str, keyword: str) -> Dict[str, Any]:
+    def search_records(self, table_name: str, keyword: str,
+                       exact_match: bool = False) -> Dict[str, Any]:
         with self._lock:
             tn, kw = str(table_name), str(keyword)
             if not kw:
@@ -49,8 +50,11 @@ class DatabaseManagerService:
             fields = self.get_fields(tn)
             if not fields:
                 return {"ok": True, "data": [], "fields": fields, "table": tn}
-            conditions = " OR ".join(f"{_quote_identifier(f)} LIKE ?" for f in fields)
-            params = tuple(f"%{kw}%" for _ in fields)
+            operator = "=" if exact_match else "LIKE"
+            conditions = " OR ".join(
+                f"CAST({_quote_identifier(f)} AS TEXT) {operator} ?" for f in fields)
+            value = kw if exact_match else f"%{kw}%"
+            params = tuple(value for _ in fields)
             cursor = self.conn.cursor()
             if "id" in fields:
                 cursor.execute(f"SELECT * FROM {_quote_identifier(tn)} WHERE {conditions}", params)
@@ -123,12 +127,12 @@ class DatabaseManagerService:
             except Exception as exc:
                 return {"ok": False, "message": f"删除失败: {exc}"}
 
-    def global_search(self, keyword: str) -> Dict[str, Any]:
+    def global_search(self, keyword: str, exact_match: bool = False) -> Dict[str, Any]:
         with self._lock:
             kw = str(keyword)
             if not kw:
                 return {"ok": True, "results": []}
-            results = self._global_search(kw)
+            results = self._global_search(kw, bool(exact_match))
             return {"ok": True, "results": results}
 
     def global_replace(self, keyword: str, replacement: str,
@@ -189,13 +193,15 @@ class DatabaseManagerService:
                 all_fields.append((table, fields))
         return all_fields
 
-    def _global_search(self, keyword: str) -> List[Dict[str, Any]]:
+    def _global_search(self, keyword: str, exact_match: bool = False) -> List[Dict[str, Any]]:
         results = []
         for table, fields in self._get_all_text_fields():
             column_names = self.get_fields(table)
             has_id = "id" in column_names
             select_columns = ", ".join(_quote_identifier(field) for field in column_names)
-            where_clause = " OR ".join(f"{_quote_identifier(field)} LIKE ?" for field in fields)
+            operator = "=" if exact_match else "LIKE"
+            where_clause = " OR ".join(
+                f"CAST({_quote_identifier(field)} AS TEXT) {operator} ?" for field in fields)
             if has_id:
                 query = f"SELECT {select_columns} FROM {_quote_identifier(table)} WHERE {where_clause}"
                 id_col_idx = column_names.index("id")
@@ -205,14 +211,17 @@ class DatabaseManagerService:
 
             try:
                 cursor = self.conn.cursor()
-                cursor.execute(query, [f"%{keyword}%"] * len(fields))
+                value = keyword if exact_match else f"%{keyword}%"
+                cursor.execute(query, [value] * len(fields))
                 for row in cursor.fetchall():
                     row_id = row[id_col_idx]
                     for field in fields:
                         field_index = column_names.index(field)
                         value_index = field_index if has_id else field_index + 1
                         field_value = row[value_index]
-                        if field_value and keyword in str(field_value):
+                        field_text = str(field_value) if field_value is not None else ""
+                        matched = field_text == keyword if exact_match else keyword in field_text
+                        if matched:
                             results.append({
                                 "table": table,
                                 "id": row_id,

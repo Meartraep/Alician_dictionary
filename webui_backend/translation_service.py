@@ -5,6 +5,7 @@ import re
 import sqlite3
 import threading
 import logging
+import math
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -93,8 +94,8 @@ class TranslationService:
     def _load_entries(self) -> None:
         cur = self._conn.cursor()
         cur.execute(
-            "SELECT words, explanation, class, count, variety FROM dictionary "
-            "WHERE words IS NOT NULL AND TRIM(words) <> ''"
+            "SELECT words, explanation, class, count, variety, sense_order FROM dictionary "
+            "WHERE words IS NOT NULL AND TRIM(words) <> '' ORDER BY headword_id, sense_order"
         )
         for row in cur.fetchall():
             entry = self._make_entry(
@@ -104,6 +105,7 @@ class TranslationService:
                 word_class=row["class"],
                 count=row["count"],
                 variety=row["variety"],
+                sense_order=row["sense_order"],
             )
             self._entries.append(entry)
             self._word_entries.append(entry)
@@ -122,6 +124,7 @@ class TranslationService:
                 word_class="phrase",
                 count=row["count"],
                 variety=row["variety"],
+                sense_order=1,
             )
             words = [part.lower() for part in re.findall(r"[A-Za-z][A-Za-z'-]*", entry["target"])]
             if words:
@@ -139,6 +142,7 @@ class TranslationService:
         word_class: Any,
         count: Any,
         variety: Any,
+        sense_order: Any = 1,
     ) -> Dict[str, Any]:
         return {
             "kind": kind,
@@ -147,6 +151,7 @@ class TranslationService:
             "word_class": str(word_class or "").strip(),
             "count": _as_int(count),
             "variety": _as_int(variety),
+            "sense_order": max(1, _as_int(sense_order)),
             "terms": set(),
         }
 
@@ -434,6 +439,7 @@ class TranslationService:
 
     def _translate_alician_to_zh(self, text: str, direction: str) -> Dict[str, Any]:
         parts = _ALICIAN_PART_RE.findall(text)
+        contextual_senses = self._select_contextual_senses(parts)
         tokens: List[Dict[str, Any]] = []
         i = 0
         while i < len(parts):
@@ -453,9 +459,19 @@ class TranslationService:
                 i = end_index
                 continue
 
-            entry = self._best_word_entry(part)
+            entry = contextual_senses.get(i) or self._best_word_entry(part)
             if entry:
-                tokens.append(self._entry_to_chinese_token(entry, part, "exact", "word"))
+                token = self._entry_to_chinese_token(entry, part, "exact", "contextual_sense")
+                candidates = self._word_by_lower.get(part.lower()) or []
+                token["alternatives"] = [
+                    self._alternative(candidate, 1.0 if candidate is entry else 0.0)
+                    for candidate in candidates
+                ]
+                token["note"] = (
+                    f"已结合上下文从 {len(candidates)} 个释义中选择当前释义。"
+                    if len(candidates) > 1 else "词典单义词条命中。"
+                )
+                tokens.append(token)
                 i += 1
                 continue
 
@@ -517,9 +533,95 @@ class TranslationService:
             return None
         return sorted(
             candidates,
-            key=lambda entry: (entry["count"], entry["variety"], -len(entry["explanation"])),
-            reverse=True,
+            key=lambda entry: (entry.get("sense_order", 1), -entry["count"], -entry["variety"]),
         )[0]
+
+    @staticmethod
+    def _pos_family(word_class: str) -> str:
+        value = str(word_class or "").strip().lower().rstrip(".")
+        return "v" if value in {"vi", "vt"} else (value or "unknown")
+
+    @classmethod
+    def _pos_transition_score(cls, left: str, right: str) -> float:
+        left, right = cls._pos_family(left), cls._pos_family(right)
+        preferred = {
+            ("art", "n"): 1.5, ("art", "adj"): 1.2,
+            ("pron", "v"): 1.4, ("n", "v"): 1.25,
+            ("adj", "n"): 1.45, ("adv", "v"): 1.15,
+            ("adv", "adj"): 1.0, ("v", "n"): 1.15,
+            ("v", "pron"): 1.0, ("v", "adv"): 0.65,
+            ("prep", "n"): 1.35, ("prep", "pron"): 1.25,
+            ("num", "n"): 1.3, ("conj", "pron"): 0.7,
+            ("conj", "n"): 0.7, ("conj", "v"): 0.55,
+        }
+        discouraged = {
+            ("art", "v"), ("art", "adv"), ("prep", "v"),
+            ("adj", "v"), ("pron", "pron"), ("num", "v"),
+        }
+        if (left, right) in preferred:
+            return preferred[(left, right)]
+        if (left, right) in discouraged:
+            return -0.8
+        if "unknown" in {left, right}:
+            return 0.0
+        return -0.05
+
+    def _sense_base_score(self, entry: Dict[str, Any]) -> float:
+        order = max(1, int(entry.get("sense_order") or 1))
+        frequency = math.log1p(max(0, entry.get("count", 0))) * 0.02
+        return frequency - (order - 1) * 0.18
+
+    def _select_contextual_senses(self, parts: List[str]) -> Dict[int, Dict[str, Any]]:
+        """Choose one sense per recognized word using sentence-level POS scoring."""
+        selected: Dict[int, Dict[str, Any]] = {}
+        segment: List[Tuple[int, List[Dict[str, Any]]]] = []
+
+        def solve() -> None:
+            if not segment:
+                return
+            scores: List[List[float]] = []
+            back: List[List[int]] = []
+            for position, (_, candidates) in enumerate(segment):
+                row_scores: List[float] = []
+                row_back: List[int] = []
+                for candidate in candidates:
+                    base = self._sense_base_score(candidate)
+                    if position == 0:
+                        row_scores.append(base)
+                        row_back.append(-1)
+                        continue
+                    previous_candidates = segment[position - 1][1]
+                    options = [
+                        scores[position - 1][j] + self._pos_transition_score(
+                            previous["word_class"], candidate["word_class"]
+                        )
+                        for j, previous in enumerate(previous_candidates)
+                    ]
+                    best_index = max(range(len(options)), key=options.__getitem__)
+                    row_scores.append(base + options[best_index])
+                    row_back.append(best_index)
+                scores.append(row_scores)
+                back.append(row_back)
+            candidate_index = max(range(len(scores[-1])), key=scores[-1].__getitem__)
+            for position in range(len(segment) - 1, -1, -1):
+                part_index, candidates = segment[position]
+                selected[part_index] = candidates[candidate_index]
+                candidate_index = back[position][candidate_index]
+            segment.clear()
+
+        for index, part in enumerate(parts):
+            if part.isspace():
+                continue
+            if not re.fullmatch(r"[A-Za-z][A-Za-z'-]*", part):
+                solve()
+                continue
+            candidates = self._word_by_lower.get(part.lower()) or []
+            if candidates:
+                segment.append((index, candidates))
+            else:
+                solve()
+        solve()
+        return selected
 
     def _find_similar_alician_word(self, word: str) -> Tuple[Optional[Dict[str, Any]], float]:
         best_entry = None

@@ -15,11 +15,11 @@ function bindBaseElements() {
     "translatorInput", "translatorOutput", "translatorSplit", "translatorDetails", "translatorStatus",
     "autoUpdateToggle", "alicFontToggle", "alicHoverToggle", "alicHoverDelaySlider", "alicHoverDelayLabel",
     "checkUpdateBtn", "updateCheckStatus", "forceDownloadBtn",
-    "dbmTableList", "dbmRefreshBtn", "dbmSearchInput", "dbmSearchBtn",
+    "dbmTableList", "dbmRefreshBtn", "dbmSearchInput", "dbmSearchExact", "dbmSearchBtn",
     "dbmShowAllBtn", "dbmAddBtn", "dbmDeleteBtn",
     "dbmDiscardBtn", "dbmCommitBtn",
     "dbmUpdateWordCountBtn", "dbmClassifyWordsBtn", "dbmExportCsvBtn", "dbmExportDbBtn",
-    "dbmDataTable", "dbmStatus", "dbmGlobalSearchInput",
+    "dbmDataTable", "dbmStatus", "dbmGlobalSearchInput", "dbmGlobalSearchExact",
     "dbmGlobalSearchBtn", "dbmGlobalSelectAllBtn", "dbmReplaceInput", "dbmReplaceBtn", "dbmGlobalStatus",
     "fileLoader",
   ];

@@ -369,8 +369,10 @@ class UnifiedAPI:
     def dbmanager_get_all_data(self, table_name: str) -> Dict[str, Any]:
         return self._invoke(lambda: self._dbmanager_service.get_all_data(table_name))
 
-    def dbmanager_search(self, table_name: str, keyword: str) -> Dict[str, Any]:
-        return self._invoke(lambda: self._dbmanager_service.search_records(table_name, keyword))
+    def dbmanager_search(self, table_name: str, keyword: str,
+                         exact_match: bool = False) -> Dict[str, Any]:
+        return self._invoke(
+            lambda: self._dbmanager_service.search_records(table_name, keyword, bool(exact_match)))
 
     def dbmanager_add_record(self, table_name: str, values: Dict[str, str]) -> Dict[str, Any]:
         ret = self._invoke(lambda: self._dbmanager_service.add_record(table_name, values))
@@ -410,8 +412,9 @@ class UnifiedAPI:
             self._app_settings.mark_local_database_changed()
         return ret
 
-    def dbmanager_global_search(self, keyword: str) -> Dict[str, Any]:
-        return self._invoke(lambda: self._dbmanager_service.global_search(keyword))
+    def dbmanager_global_search(self, keyword: str,
+                                exact_match: bool = False) -> Dict[str, Any]:
+        return self._invoke(lambda: self._dbmanager_service.global_search(keyword, bool(exact_match)))
 
     def dbmanager_global_replace(self, keyword: str, replacement: str,
                                  match_records: List[Dict[str, Any]]) -> Dict[str, Any]:

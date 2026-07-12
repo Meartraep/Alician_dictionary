@@ -152,6 +152,10 @@
               <div class="dbmanager-toolbar card toolbar">
                 <button id="dbmRefreshBtn" type="button">刷新</button>
                 <input id="dbmSearchInput" type="text" placeholder="搜索当前表..." />
+                <label class="check-inline">
+                  <input id="dbmSearchExact" type="checkbox" />
+                  精确
+                </label>
                 <button id="dbmSearchBtn" type="button">搜索</button>
                 <button id="dbmShowAllBtn" type="button">显示全部</button>
                 <button id="dbmUpdateWordCountBtn" type="button">更新词频/泛度</button>
@@ -172,6 +176,10 @@
           </div>
           <div class="dbmanager-global card toolbar">
             <input id="dbmGlobalSearchInput" type="text" placeholder="全局跨表搜索..." />
+            <label class="check-inline">
+              <input id="dbmGlobalSearchExact" type="checkbox" />
+              精确
+            </label>
             <button id="dbmGlobalSearchBtn" type="button">全局搜索</button>
             <button id="dbmGlobalSelectAllBtn" type="button" class="ghost">全选结果</button>
             <input id="dbmReplaceInput" type="text" placeholder="替换为..." />

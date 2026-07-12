@@ -194,7 +194,7 @@ class WritingAssistantService:
             cursor.execute("SELECT PHRASE FROM phrase")
             all_phrases = [row[0] for row in cursor.fetchall()]
             all_phrases.sort(key=len, reverse=True)
-            cursor.execute("SELECT words FROM dictionary")
+            cursor.execute("SELECT words FROM dictionary_headwords")
             all_words = [row[0] for row in cursor.fetchall()]
             strict_case = bool(self.config_manager.get("strict_case"))
             remaining_text = text
@@ -216,8 +216,8 @@ class WritingAssistantService:
             for word in remaining_words:
                 if not word.strip():
                     continue
-                query = "SELECT explanation, class FROM dictionary WHERE words = ?" if strict_case else \
-                    "SELECT explanation, class FROM dictionary WHERE LOWER(words) = LOWER(?)"
+                query = "SELECT display_explanation, display_class FROM dictionary_headwords WHERE words = ?" if strict_case else \
+                    "SELECT display_explanation, display_class FROM dictionary_headwords WHERE LOWER(words) = LOWER(?)"
                 cursor.execute(query, (word,))
                 result = cursor.fetchone()
                 if result:
@@ -233,8 +233,8 @@ class WritingAssistantService:
                     if score > best_score and score > 0.6:
                         best_score, best_match = score, dict_word
                 if best_match:
-                    q2 = "SELECT explanation, class FROM dictionary WHERE words = ?" if strict_case else \
-                        "SELECT explanation, class FROM dictionary WHERE LOWER(words) = LOWER(?)"
+                    q2 = "SELECT display_explanation, display_class FROM dictionary_headwords WHERE words = ?" if strict_case else \
+                        "SELECT display_explanation, display_class FROM dictionary_headwords WHERE LOWER(words) = LOWER(?)"
                     cursor.execute(q2, (best_match,))
                     sr = cursor.fetchone()
                     if sr:
@@ -245,8 +245,8 @@ class WritingAssistantService:
                             "score": round(best_score, 4),
                         }
             if not explanations:
-                q = "SELECT explanation, class FROM dictionary WHERE words = ?" if strict_case else \
-                    "SELECT explanation, class FROM dictionary WHERE LOWER(words) = LOWER(?)"
+                q = "SELECT display_explanation, display_class FROM dictionary_headwords WHERE words = ?" if strict_case else \
+                    "SELECT display_explanation, display_class FROM dictionary_headwords WHERE LOWER(words) = LOWER(?)"
                 cursor.execute(q, (text,))
                 result = cursor.fetchone()
                 explanations[text] = {

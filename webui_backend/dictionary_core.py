@@ -24,7 +24,8 @@ def _quote_identifier(name: str) -> str:
 
 class DictionaryConfig:
     REQUIRED_TABLES = {
-        "dictionary": ["words", "explanation", "class"],
+        "dictionary": ["headword_id", "words", "explanation", "class", "sense_order"],
+        "dictionary_headwords": ["words", "display_explanation", "display_class"],
         "songs": ["title", "lyric", "Album"],
         "phrase": ["PHRASE", "explanation"],
     }
@@ -154,25 +155,28 @@ class DatabaseHandler:
             return [], []
         if is_exact:
             self.cursor.execute(
-                "SELECT words, explanation, class FROM dictionary WHERE words = ? LIMIT 20",
+                "SELECT words, display_explanation, display_class FROM dictionary_headwords WHERE words = ? LIMIT 20",
                 (query,),
             )
             alice_res = self.cursor.fetchall()
             self.cursor.execute(
-                "SELECT words, explanation, class FROM dictionary WHERE explanation = ? LIMIT 20",
+                "SELECT DISTINCT h.words, h.display_explanation, h.display_class "
+                "FROM dictionary d JOIN dictionary_headwords h ON h.id = d.headword_id "
+                "WHERE d.explanation = ? LIMIT 20",
                 (query,),
             )
             chinese_res = self.cursor.fetchall()
         else:
             self.cursor.execute(
-                "SELECT words, explanation, class FROM dictionary "
+                "SELECT words, display_explanation, display_class FROM dictionary_headwords "
                 "WHERE LOWER(words) LIKE LOWER(?) LIMIT 20",
                 (f"%{query}%",),
             )
             alice_res = self.cursor.fetchall()
             self.cursor.execute(
-                "SELECT words, explanation, class FROM dictionary "
-                "WHERE LOWER(explanation) LIKE LOWER(?) LIMIT 20",
+                "SELECT DISTINCT h.words, h.display_explanation, h.display_class "
+                "FROM dictionary d JOIN dictionary_headwords h ON h.id = d.headword_id "
+                "WHERE LOWER(d.explanation) LIKE LOWER(?) LIMIT 20",
                 (f"%{query}%",),
             )
             chinese_res = self.cursor.fetchall()
@@ -196,7 +200,7 @@ class DatabaseHandler:
     def get_all_words(self) -> List[Tuple[str, str]]:
         if not self.cursor:
             return []
-        self.cursor.execute("SELECT words, explanation FROM dictionary")
+        self.cursor.execute("SELECT words, display_explanation FROM dictionary_headwords")
         return self.cursor.fetchall()
 
     def find_songs_with_word(self, word: str) -> List[Tuple[str, str, str]]:
@@ -235,10 +239,10 @@ class DatabaseHandler:
         if not self.cursor or not word:
             return None
         if is_exact:
-            self.cursor.execute("SELECT count, variety FROM dictionary WHERE words = ?", (word,))
+            self.cursor.execute("SELECT count, variety FROM dictionary_headwords WHERE words = ?", (word,))
         else:
             self.cursor.execute(
-                "SELECT count, variety FROM dictionary WHERE LOWER(words) = LOWER(?)",
+                "SELECT count, variety FROM dictionary_headwords WHERE LOWER(words) = LOWER(?)",
                 (word,),
             )
         result = self.cursor.fetchone()

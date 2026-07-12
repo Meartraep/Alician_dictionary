@@ -243,13 +243,14 @@ async function dbmanagerSearch() {
   var table = state.dbmanager.currentTable;
   if (!table) { toast("请先选择数据表", "warn"); return; }
   var kw = (els.dbmSearchInput?.value || "").trim();
+  var exact = Boolean(els.dbmSearchExact?.checked);
   try {
-    var ret = await callApi("dbmanager_search", table, kw);
+    var ret = await callApi("dbmanager_search", table, kw, exact);
     if (ret?.ok) {
       state.dbmanager.data = ret.data || [];
       state.dbmanager.selectedIds = new Set();
       renderDbmanagerData();
-      els.dbmStatus.textContent = kw ? '搜索 "' + kw + '" — ' + ret.data.length + " 条结果" : "共 " + ret.data.length + " 条记录";
+      els.dbmStatus.textContent = kw ? (exact ? "精确" : "模糊") + '搜索 "' + kw + '" — ' + ret.data.length + " 条结果" : "共 " + ret.data.length + " 条记录";
     } else { toast(ret?.message || "搜索失败", "warn"); }
   } catch (err) { toast("搜索失败：" + err.message, "warn"); }
 }
@@ -319,9 +320,10 @@ function renderGlobalResults() {
 
 async function dbmanagerGlobalSearch() {
   var kw = (els.dbmGlobalSearchInput?.value || "").trim();
+  var exact = Boolean(els.dbmGlobalSearchExact?.checked);
   if (!kw) { toast("请输入搜索关键词", "warn"); return; }
   try {
-    var ret = await callApi("dbmanager_global_search", kw);
+    var ret = await callApi("dbmanager_global_search", kw, exact);
     if (ret?.ok) {
       state.dbmanager.globalResults = ret.results || [];
       state.dbmanager.globalSelectedIndexes = new Set();

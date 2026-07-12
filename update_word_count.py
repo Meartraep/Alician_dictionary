@@ -101,8 +101,11 @@ def main(verbose=False):
             logger.error(error_msg)
             return
         
-        # 检查dictionary表字段
-        cursor.execute("PRAGMA table_info(dictionary)")
+        # 词头表保存每个单词唯一的词频；dictionary 是一行一个释义。
+        stats_table = "dictionary_headwords" if cursor.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='dictionary_headwords'"
+        ).fetchone() else "dictionary"
+        cursor.execute(f"PRAGMA table_info({stats_table})")
         dict_columns = [col[1] for col in cursor.fetchall()]
         required_cols = ['words', 'count']
         for col in required_cols:
@@ -115,7 +118,7 @@ def main(verbose=False):
         # 新增/检查variety字段（INTEGER类型，更高效）
         if 'variety' not in dict_columns:
             try:
-                cursor.execute("ALTER TABLE dictionary ADD COLUMN variety INTEGER DEFAULT 0")
+                cursor.execute(f"ALTER TABLE {stats_table} ADD COLUMN variety INTEGER DEFAULT 0")
                 msg = "提示：已自动添加 variety 字段（INTEGER类型）"
                 print(msg)
                 logger.info(msg)
@@ -127,7 +130,7 @@ def main(verbose=False):
         
         # 1. 加载所有有效单词（过滤空值，建立ID映射）
         cursor.execute("""
-            SELECT id, words, count, variety FROM dictionary 
+            SELECT id, words, count, variety FROM dictionary_headwords
             WHERE words IS NOT NULL AND words != ''
         """)
         words = cursor.fetchall()
@@ -217,10 +220,15 @@ def main(verbose=False):
         # 执行批量更新
         if update_data:
             cursor.executemany("""
-                UPDATE dictionary 
+                UPDATE dictionary_headwords
                 SET count = ?, variety = ? 
                 WHERE id = ?
             """, update_data)
+            cursor.execute("""
+                UPDATE dictionary
+                SET count = (SELECT h.count FROM dictionary_headwords h WHERE h.id = dictionary.headword_id),
+                    variety = (SELECT h.variety FROM dictionary_headwords h WHERE h.id = dictionary.headword_id)
+            """)
             conn.commit()
             msg = f"\n批量更新 {len(update_data)} 个单词的统计结果"
             print(msg)

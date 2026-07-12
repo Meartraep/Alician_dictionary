@@ -46,7 +46,7 @@ class HighlightManager:
             cursor = conn.cursor()
             
             # 加载单词
-            cursor.execute("SELECT words, count, variety FROM dictionary")
+            cursor.execute("SELECT words, count, variety FROM dictionary_headwords")
             word_rows = cursor.fetchall()
             
             # 加载词组
