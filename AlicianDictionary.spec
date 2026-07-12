@@ -17,6 +17,7 @@ hiddenimports = [
     'db_exporter',
     'classify_words',
     'update_word_count',
+    'scripts.migrate_dictionary_senses',
     'webui_backend.translation_service',
     'webui_backend.similarity_matcher',
     'webview.platforms.edgechromium',

@@ -6,6 +6,7 @@ hiddenimports = [
     'db_exporter',
     'classify_words',
     'update_word_count',
+    'scripts.migrate_dictionary_senses',
     'webview.platforms.edgechromium',
     'webview.platforms.winforms',
 ]

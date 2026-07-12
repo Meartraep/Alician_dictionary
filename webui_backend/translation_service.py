@@ -21,6 +21,12 @@ _POS_RE = re.compile(
     r"\b(?:adj|adv|art|conj|interj|n|num|prep|pron|v|vi|vt)\.?",
     re.IGNORECASE,
 )
+_TEMPLATE_SLOT_RE = re.compile(r"(?:\.{2,}|…+)")
+_CHINESE_NEGATION_FORMS = tuple(sorted({
+    "不可能", "不可以", "不会", "不能", "不可", "不要", "不必", "不得",
+    "没有", "没能", "未能", "未曾", "从未", "并不", "并非", "绝不", "毫不",
+    "不是", "不", "没", "未", "无", "非",
+}, key=len, reverse=True))
 
 
 def _default_db_path() -> str:
@@ -257,13 +263,190 @@ class TranslationService:
         }
 
     def _arrange_chinese_to_alician(self, tokens: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        normalized = self._apply_alician_grammar_lexemes(tokens)
+        result: List[Dict[str, Any]] = []
+        clause: List[Dict[str, Any]] = []
+
+        def flush() -> None:
+            if clause:
+                result.extend(self._arrange_chinese_clause(clause))
+                clause.clear()
+
+        for token in normalized:
+            if token.get("status") == "punct":
+                flush()
+                result.append(token)
+            else:
+                clause.append(token)
+        flush()
+        return result
+
+    def _apply_alician_grammar_lexemes(
+        self, tokens: List[Dict[str, Any]],
+    ) -> List[Dict[str, Any]]:
+        grammar_words = {
+            "不": "Nai", "没": "Nai", "没有": "Nai",
+            "将": "Laiz", "将要": "Laiz",
+        }
+        for token in tokens:
+            source = str(token.get("source") or "")
+            target_word = "Nai" if source in _CHINESE_NEGATION_FORMS else grammar_words.get(source)
+            if not target_word:
+                continue
+            entry = self._best_word_entry(target_word)
+            if not entry:
+                continue
+            token["target"] = entry["target"]
+            token["explanation"] = entry["explanation"]
+            token["word_class"] = "adv."
+            token["method"] = "grammar_function"
+            token["confidence"] = 1.0
+            token["note"] = "按爱丽丝语语法功能词生成。"
         return tokens
+
+    @staticmethod
+    def _negative_form_at(text: str, start: int) -> str:
+        for form in _CHINESE_NEGATION_FORMS:
+            if text.startswith(form, start):
+                return form
+        return ""
+
+    def _grammar_function_token(self, source: str, target_word: str) -> Dict[str, Any]:
+        entry = self._best_word_entry(target_word)
+        if not entry:
+            return self._token(source, target_word, "exact", "grammar_function", 1.0)
+        token = self._entry_to_token(source, entry, "exact")
+        token["word_class"] = "adv."
+        token["method"] = "grammar_function"
+        token["note"] = "中文否定表达统一按爱丽丝语否定功能词生成。"
+        return token
+
+    def _arrange_chinese_possessives(
+        self, tokens: List[Dict[str, Any]],
+    ) -> List[Dict[str, Any]]:
+        """Convert Chinese possessor-的-head into Alician head-ou-possessor."""
+        arranged = list(tokens)
+        index = 1
+        while index < len(arranged) - 1:
+            token = arranged[index]
+            if str(token.get("target") or "").lower() != "ou":
+                index += 1
+                continue
+            left, right = arranged[index - 1], arranged[index + 1]
+            left_family = self._pos_family(str(left.get("word_class") or ""))
+            right_family = self._pos_family(str(right.get("word_class") or ""))
+            if left_family in {"n", "pron"} and right_family == "n":
+                arranged[index - 1:index + 2] = [right, token, left]
+                token["syntax_role"] = "possessive_marker"
+                token["note"] = "中文领属结构已转换为爱丽丝语 head-ou-possessor 语序。"
+                index += 3
+            else:
+                index += 1
+        return arranged
+
+    def _arrange_chinese_clause(self, clause: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        semantic = [token for token in clause if token.get("status") != "space"]
+        if not semantic:
+            return clause
+        semantic = self._arrange_chinese_possessives(semantic)
+        families = [self._pos_family(str(token.get("word_class") or "")) for token in semantic]
+        grammar_sources = {"不", "没", "没有", "将", "将要"}
+        verb_indexes = [
+            index for index, family in enumerate(families)
+            if family == "v" and str(semantic[index].get("source") or "") not in grammar_sources
+        ]
+        if len(verb_indexes) != 1:
+            return semantic
+        verb_index = verb_indexes[0]
+        possessive_groups: Dict[int, List[int]] = {}
+        possessive_members = set()
+        for marker_index, token in enumerate(semantic):
+            if token.get("syntax_role") != "possessive_marker":
+                continue
+            if marker_index <= 0 or marker_index + 1 >= len(semantic):
+                continue
+            head_index = marker_index - 1
+            possessive_groups[head_index] = [head_index, marker_index, marker_index + 1]
+            possessive_members.update({marker_index, marker_index + 1})
+
+        def phrase(index: int) -> List[int]:
+            return possessive_groups.get(index, [index])
+
+        before_nominals = [
+            i for i in range(verb_index)
+            if i not in possessive_members and families[i] in {"n", "pron"}
+        ]
+        after_nominals = [
+            i for i in range(verb_index + 1, len(semantic))
+            if i not in possessive_members and families[i] in {"n", "pron"}
+        ]
+        if not before_nominals:
+            return semantic
+        subject = before_nominals[0]
+        obj = after_nominals[0] if after_nominals else None
+
+        core = {verb_index, *phrase(subject)}
+        if obj is not None:
+            core.update(phrase(obj))
+        manner = [
+            i for i, token in enumerate(semantic)
+            if i not in core and families[i] == "adv"
+            and str(token.get("source") or "").endswith("地")
+        ]
+        modal = [
+            i for i, token in enumerate(semantic)
+            if i not in core and str(token.get("target") or "") == "Foul"
+        ]
+        prefixes = [
+            i for i, family in enumerate(families)
+            if i not in core and i not in manner and i not in modal
+            and family in {"conj", "interj"}
+        ]
+        remaining = [
+            i for i in range(len(semantic))
+            if i not in core and i not in manner and i not in modal and i not in prefixes
+        ]
+
+        # Attested emphatic pattern: Foul + S + O + V.
+        if modal and obj is not None:
+            order = prefixes + modal + phrase(subject) + phrase(obj) + remaining + [verb_index] + manner
+            pattern = "SOV-emphatic"
+        # A nominal subject with a pronominal/demonstrative object commonly permits VOS.
+        elif obj is not None and families[subject] == "n" and (
+            families[obj] == "pron" or str(semantic[obj].get("target") or "") == "Xia"
+        ):
+            order = prefixes + remaining + [verb_index] + phrase(obj) + phrase(subject) + manner
+            pattern = "VOS-focus"
+        else:
+            order = prefixes + modal + phrase(subject) + remaining + [verb_index]
+            if obj is not None:
+                order += phrase(obj)
+            order += manner
+            pattern = "SVO"
+        if len(set(order)) != len(semantic):
+            return semantic
+        arranged = []
+        for output_position, source_index in enumerate(order):
+            token = semantic[source_index]
+            token["source_position"] = source_index
+            token["reordered_position"] = output_position
+            token["alician_order_pattern"] = pattern
+            arranged.append(token)
+        return arranged
 
     def _translate_chinese_run(self, text: str) -> List[Dict[str, Any]]:
         tokens: List[Dict[str, Any]] = []
         i = 0
         while i < len(text):
             match = self._find_longest_term(text, i)
+            negative = self._negative_form_at(text, i)
+            # Preserve longer complete lexical entries such as “无数”; otherwise
+            # consume the whole negative phrase before character-level matching.
+            matched_term = match[0] if match else ""
+            if negative and len(negative) >= len(matched_term):
+                tokens.append(self._grammar_function_token(negative, "Nai"))
+                i += len(negative)
+                continue
             if match:
                 term, candidates = match
                 tokens.append(self._entry_to_token(term, self._choose_candidate(candidates, term), "exact"))
@@ -459,7 +642,8 @@ class TranslationService:
                 i = end_index
                 continue
 
-            entry = contextual_senses.get(i) or self._best_word_entry(part)
+            entry = self._sentence_template_entry(parts, i, part)
+            entry = entry or contextual_senses.get(i) or self._best_word_entry(part)
             if entry:
                 token = self._entry_to_chinese_token(entry, part, "exact", "contextual_sense")
                 candidates = self._word_by_lower.get(part.lower()) or []
@@ -497,14 +681,15 @@ class TranslationService:
             )
             i += 1
 
-        result_text = self._compose_chinese_result(tokens)
+        ordered_tokens = self._reorder_alician_clauses(tokens)
+        result_text = self._compose_chinese_result(ordered_tokens, resolve_templates=True)
         stats = self._stats(tokens)
         return {
             "ok": True,
             "direction": direction,
             "source_text": text,
             "result_text": result_text,
-            "tokens": tokens,
+            "tokens": ordered_tokens,
             "stats": stats,
             "message": self._message(stats),
         }
@@ -535,6 +720,33 @@ class TranslationService:
             candidates,
             key=lambda entry: (entry.get("sense_order", 1), -entry["count"], -entry["variety"]),
         )[0]
+
+    @staticmethod
+    def _template_arity(explanation: str) -> int:
+        return len(_TEMPLATE_SLOT_RE.findall(str(explanation or "")))
+
+    def _sentence_template_entry(
+        self, parts: List[str], start: int, word: str,
+    ) -> Optional[Dict[str, Any]]:
+        """Prefer a template sense only when its following argument slots exist."""
+        candidates = self._word_by_lower.get(str(word or "").lower()) or []
+        templates = [entry for entry in candidates if self._template_arity(entry["explanation"]) > 0]
+        if not templates:
+            return None
+        following_words = 0
+        for part in parts[start + 1:]:
+            if part.isspace():
+                continue
+            if not re.fullmatch(r"[A-Za-z][A-Za-z'-]*", part):
+                break
+            following_words += 1
+        eligible = [
+            entry for entry in templates
+            if self._template_arity(entry["explanation"]) <= following_words
+        ]
+        if not eligible:
+            return None
+        return min(eligible, key=lambda entry: entry.get("sense_order", 1))
 
     @staticmethod
     def _pos_family(word_class: str) -> str:
@@ -638,6 +850,127 @@ class TranslationService:
             return best_entry, best_score
         return None, 0.0
 
+    @staticmethod
+    def _is_nominal_family(family: str) -> bool:
+        return family in {"n", "pron"}
+
+    def _syntax_family(self, token: Dict[str, Any]) -> str:
+        source = str(token.get("source") or "").lower()
+        if source in {"laiz", "nai"}:
+            return "adv"
+        if str(token.get("target") or "") == "一定":
+            return "adv"
+        return self._pos_family(str(token.get("word_class") or ""))
+
+    def _reorder_alician_clauses(self, tokens: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Normalize simple SOV/VOS clauses to Chinese SVO while preserving punctuation."""
+        result: List[Dict[str, Any]] = []
+        clause: List[Dict[str, Any]] = []
+
+        def flush() -> None:
+            if clause:
+                result.extend(self._reorder_simple_clause(clause))
+                clause.clear()
+
+        for token in tokens:
+            if token.get("status") == "punct":
+                flush()
+                result.append(token)
+            else:
+                clause.append(token)
+        flush()
+        return result
+
+    def _reorder_simple_clause(self, clause: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        semantic = [token for token in clause if token.get("status") != "space"]
+        if len(semantic) < 3:
+            return clause
+        if any(self._template_arity(str(token.get("explanation") or "")) for token in semantic):
+            return clause
+
+        families = [self._syntax_family(token) for token in semantic]
+        verb_indexes = [index for index, family in enumerate(families) if family == "v"]
+        if len(verb_indexes) != 1:
+            return clause
+        verb_index = verb_indexes[0]
+
+        # Attach Chinese prenominal modifiers to the following noun phrase.
+        units: List[List[int]] = []
+        index = 0
+        while index < len(semantic):
+            if families[index] in {"adj", "art", "num"}:
+                end = index
+                while end + 1 < len(semantic) and families[end + 1] in {"adj", "art", "num"}:
+                    end += 1
+                if end + 1 < len(semantic) and self._is_nominal_family(families[end + 1]):
+                    units.append(list(range(index, end + 2)))
+                    index = end + 2
+                    continue
+            units.append([index])
+            index += 1
+
+        verb_unit = next((i for i, unit in enumerate(units) if verb_index in unit), -1)
+        nominal_units = [
+            i for i, unit in enumerate(units)
+            if self._is_nominal_family(families[unit[-1]])
+        ]
+        if verb_unit < 0 or not nominal_units:
+            return clause
+
+        before = [i for i in nominal_units if i < verb_unit]
+        after = [i for i in nominal_units if i > verb_unit]
+        if not before and len(after) >= 2:  # VOS -> SVO
+            subject_unit, object_units = after[-1], after[:-1]
+        elif not before and len(after) == 1 and families[units[after[0]][-1]] == "pron":
+            subject_unit, object_units = after[0], []  # V-(Adv)-S -> S-Adv-V
+        elif not before and len(after) == 1:
+            subject_unit, object_units = None, after  # (Adv)-V-O, omitted subject
+        elif len(before) >= 2 and not after:  # SOV -> SVO
+            subject_unit, object_units = before[0], before[1:]
+        else:  # already SVO, or the closest safe S/V/O interpretation
+            subject_unit = before[0] if before else nominal_units[0]
+            object_units = [i for i in after if i != subject_unit]
+        if not object_units and not (
+            (subject_unit is not None and not before and subject_unit in after)
+            or any(family == "adv" for family in families)
+        ):
+            return clause
+
+        core_units = {verb_unit, *object_units}
+        if subject_unit is not None:
+            core_units.add(subject_unit)
+        prefixes = [
+            i for i, unit in enumerate(units)
+            if i not in core_units and families[unit[-1]] in {"conj", "interj"}
+        ]
+        modifiers = [
+            i for i, unit in enumerate(units)
+            if i not in core_units and i not in prefixes
+        ]
+        ordered_units = prefixes + ([subject_unit] if subject_unit is not None else []) + modifiers + [verb_unit] + object_units
+        if len(set(ordered_units)) != len(units):
+            return clause
+
+        reordered: List[Dict[str, Any]] = []
+        for output_position, unit_index in enumerate(ordered_units):
+            role = (
+                "subject" if subject_unit is not None and unit_index == subject_unit else
+                "predicate" if unit_index == verb_unit else
+                "object" if unit_index in object_units else "modifier"
+            )
+            for semantic_index in units[unit_index]:
+                token = semantic[semantic_index]
+                token["syntax_role"] = role
+                token["source_position"] = semantic_index
+                token["reordered_position"] = output_position
+                source = str(token.get("source") or "").lower()
+                if role == "modifier" and source == "laiz":
+                    token["resolved_target"] = "将"
+                elif role == "modifier" and source == "nai":
+                    token["resolved_target"] = "不"
+                reordered.append(token)
+        return reordered
+
     def _entry_to_token(self, source: str, entry: Dict[str, Any], status: str) -> Dict[str, Any]:
         method = "dictionary_term" if status == "exact" else "meaning_overlap"
         return self._token(
@@ -717,7 +1050,7 @@ class TranslationService:
         out: List[str] = []
         for token in tokens:
             status = token.get("status")
-            target = str(token.get("target") or "")
+            target = str(token.get("resolved_target") or token.get("target") or "")
             if not target:
                 continue
             if status == "space":
@@ -735,13 +1068,80 @@ class TranslationService:
             out.append(target)
         return "".join(out).strip()
 
-    def _compose_chinese_result(self, tokens: List[Dict[str, Any]]) -> str:
+    @staticmethod
+    def _clean_sentence_template(explanation: str) -> str:
+        template = str(explanation or "").strip()
+        template = re.sub(r"^[（(][^）)]*[）)]", "", template).strip()
+        template = re.sub(r"[（(]\?+[）)]", "", template)
+        return template
+
+    def _template_argument_target(
+        self, token: Dict[str, Any], template: str,
+    ) -> str:
+        source = str(token.get("source") or "")
+        candidates = self._word_by_lower.get(source.lower()) or []
+        if not candidates:
+            return str(token.get("target") or "")
+        if (template.startswith("一") and "就" in template) or template.startswith(("来", "请")):
+            preferred_families = {"v", "adj", "adv"}
+        else:
+            preferred_families = {"n", "pron", "num"}
+        preferred = [
+            entry for entry in candidates
+            if self._pos_family(entry.get("word_class", "")) in preferred_families
+        ]
+        chosen = min(
+            preferred or candidates,
+            key=lambda entry: (entry.get("sense_order", 1), -entry.get("count", 0)),
+        )
+        token["template_resolved_target"] = chosen["explanation"]
+        token["template_resolved_class"] = chosen["word_class"]
+        return str(chosen["explanation"] or token.get("target") or "")
+
+    def _compose_chinese_result(
+        self, tokens: List[Dict[str, Any]], resolve_templates: bool = False,
+    ) -> str:
         out: List[str] = []
-        for token in tokens:
+        consumed = set()
+        for index, token in enumerate(tokens):
+            if index in consumed:
+                continue
             status = token.get("status")
-            target = str(token.get("target") or "")
+            target = str(token.get("resolved_target") or token.get("target") or "")
             if status == "space":
                 continue
+            if resolve_templates and status not in {"space", "punct"}:
+                explanation = str(token.get("explanation") or "")
+                arity = self._template_arity(explanation)
+                if arity:
+                    argument_indexes: List[int] = []
+                    for next_index in range(index + 1, len(tokens)):
+                        next_status = tokens[next_index].get("status")
+                        if next_status == "punct":
+                            break
+                        if next_status == "space" or next_index in consumed:
+                            continue
+                        argument_indexes.append(next_index)
+                        if len(argument_indexes) >= arity:
+                            break
+                    if len(argument_indexes) == arity:
+                        template = self._clean_sentence_template(explanation)
+                        arguments = [
+                            self._template_argument_target(tokens[arg], template)
+                            for arg in argument_indexes
+                        ]
+                        iterator = iter(arguments)
+                        target = _TEMPLATE_SLOT_RE.sub(lambda _: next(iterator), template)
+                        consumed.update(argument_indexes)
+                        token["resolved_target"] = target
+                        token["template_arguments"] = arguments
+                        token["note"] = f"已按词典句式填充 {arity} 个论元并调整中文语序。"
+                        token["method"] = "sentence_template"
+                    else:
+                        template = self._clean_sentence_template(explanation)
+                        target = _TEMPLATE_SLOT_RE.sub("", template)
+                        token["note"] = f"该句式需要 {arity} 个论元，当前输入不完整。"
+                        token["method"] = "sentence_template_incomplete"
             out.append(target)
         return "".join(out).strip()
 

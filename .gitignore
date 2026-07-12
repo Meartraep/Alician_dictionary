@@ -1,22 +1,70 @@
-*
-!*/
-!.gitignore
+# Python bytecode and caches
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
 
-!*.py
-!*.js
-!*.css
-!*.html
-!*.md
-!*.txt
-!*.json
-!*.jsonl
-!*.sqlite
-!*.ttf
-!*.ico
-!*.spec
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
 
+# IDE and editor state
+.idea/
+.vs/
+.vscode/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+*~
+*.swp
+
+# OS metadata
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Logs, temporary files, and local runtime state
+*.log
+*.tmp
+*.temp
+*.bak
+*.orig
+search_history.json
+.webview_profile/
+
+# Database journals and migration backups
+*.db-journal
+*.db-shm
+*.db-wal
+*.sqlite-journal
+*.sqlite-shm
+*.sqlite-wal
+translated.before_*.db
+
+# PyInstaller and packaging output
 build/
 dist/
-.webview_profile/
-__pycache__/
-*.log
+package_build/
+packages/
+release_build/
+release/
+
+# Local agent/tool state
+.agents/
+.codex/
+
+# Secrets and machine-local environment files
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+

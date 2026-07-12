@@ -80,10 +80,6 @@ def split_senses(explanation: str | None, default_pos: str | None) -> list[tuple
 
 
 def migrate(db_path: Path, backup: bool = True) -> tuple[int, int]:
-    if backup:
-        stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        shutil.copy2(db_path, db_path.with_name(f"{db_path.stem}.before_senses_{stamp}{db_path.suffix}"))
-
     conn = sqlite3.connect(db_path)
     try:
         columns = [row[1] for row in conn.execute("PRAGMA table_info(dictionary)")]
@@ -93,6 +89,13 @@ def migrate(db_path: Path, backup: bool = True) -> tuple[int, int]:
             return conn.execute("SELECT COUNT(*) FROM dictionary_headwords").fetchone()[0], conn.execute(
                 "SELECT COUNT(*) FROM dictionary"
             ).fetchone()[0]
+
+        if backup:
+            stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            backup_path = db_path.with_name(f"{db_path.stem}.before_senses_{stamp}{db_path.suffix}")
+            conn.close()
+            shutil.copy2(db_path, backup_path)
+            conn = sqlite3.connect(db_path)
 
         rows = conn.execute(
             "SELECT id, words, explanation, count, variety, class, time FROM dictionary ORDER BY id"

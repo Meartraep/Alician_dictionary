@@ -134,6 +134,11 @@ def main(
         data_root = APP_ROOT
 
     local_db_path = data_root / "translated.db"
+    # Existing installations keep their writable database beside the executable.
+    # Upgrade that database in place before any service validates the new schema.
+    from scripts.migrate_dictionary_senses import migrate as migrate_dictionary_senses
+
+    migrate_dictionary_senses(local_db_path, backup=True)
     app_settings = AppSettings(data_root / "app_settings.json", local_db_path)
 
     app_settings.db_path = local_db_path
