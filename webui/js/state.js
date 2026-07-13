@@ -44,6 +44,7 @@ var state = {
   dbmanager: {
     currentTable: "", tables: [], fields: [], data: [],
     selectedIds: new Set(), globalResults: [], globalSelectedIndexes: new Set(),
+    globalSearchVisible: true,
     editingRowId: "", editedValues: {}, dirtyRows: new Set(),
   },
   dictionary: { currentExamplesPayload: null, historyVisible: false },

@@ -253,14 +253,18 @@ class UnifiedAPI:
         except Exception as exc:
             return {"ok": False, "message": f"前置窗口失败: {exc}"}
 
-    def dictionary_search(self, query: str, exact_match: bool = False) -> Dict[str, Any]:
-        return self._invoke(lambda: self._dictionary_service.search(query, bool(exact_match)))
+    def dictionary_search(
+        self, query: str, exact_match: bool = False, position_filter: str = "any",
+    ) -> Dict[str, Any]:
+        return self._invoke(
+            lambda: self._dictionary_service.search(query, bool(exact_match), position_filter)
+        )
 
     def dictionary_history(self) -> List[str]:
         return self._invoke(lambda: self._dictionary_service.get_history())
 
-    def dictionary_examples(self, word: str) -> Dict[str, Any]:
-        return self._invoke(lambda: self._dictionary_service.get_examples(word))
+    def dictionary_examples(self, word: str, position_filter: str = "any") -> Dict[str, Any]:
+        return self._invoke(lambda: self._dictionary_service.get_examples(word, position_filter))
 
     def dictionary_update_lyric(self, title: str, album: str, lyric: str) -> Dict[str, Any]:
         ret = self._invoke(lambda: self._dictionary_service.update_song_lyric(title, album, lyric))

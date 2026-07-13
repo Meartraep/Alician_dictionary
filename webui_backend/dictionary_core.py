@@ -271,6 +271,7 @@ class DatabaseHandler:
 class TextProcessor:
     _WHITESPACE_PATTERN = re.compile(r"\s+")
     _COLON_PATTERN = re.compile(r"[：:]")
+    _BOUNDARY_PUNCTUATION = re.compile(r"^[\s\.,!?;，。！？；…'\"“”‘’()（）\[\]【】<>《》—-]*$")
     _compiled_patterns = {}
 
     @staticmethod
@@ -332,6 +333,27 @@ class TextProcessor:
     @staticmethod
     def extract_valid_examples(lyric: str, search_word: str) -> List[str]:
         return TextProcessor.extract_all_valid_paragraphs(lyric, search_word)
+
+    @classmethod
+    def matches_position(cls, paragraph: str, word: str, position: str) -> bool:
+        """Return whether a whole-word match is at a sentence line boundary."""
+        if position not in {"start", "end"}:
+            return True
+        pattern = cls._get_compiled_pattern(word)
+        for raw_line in paragraph.splitlines():
+            if cls.is_annotation_line(raw_line):
+                continue
+            text = cls.normalize_text(raw_line)
+            if not text:
+                continue
+            match = pattern.search(text)
+            while match:
+                if position == "start" and cls._BOUNDARY_PUNCTUATION.fullmatch(text[:match.start()]):
+                    return True
+                if position == "end" and cls._BOUNDARY_PUNCTUATION.fullmatch(text[match.end():]):
+                    return True
+                match = pattern.search(text, match.end())
+        return False
 
     @staticmethod
     def extract_all_valid_paragraphs(lyric: str, search_word: Optional[str] = None) -> List[str]:

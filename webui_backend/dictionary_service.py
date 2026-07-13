@@ -55,7 +55,9 @@ class DictionaryService:
         except Exception:
             logger.warning("构建相似度索引时发生异常", exc_info=True)
 
-    def search(self, query: str, exact_match: bool = False) -> Dict[str, Any]:
+    def search(
+        self, query: str, exact_match: bool = False, position_filter: str = "any",
+    ) -> Dict[str, Any]:
         normalized_query = (query or "").strip()
         if not normalized_query:
             return {
@@ -105,7 +107,7 @@ class DictionaryService:
             context_examples: Dict[str, Any] | None = None
             suggestions: List[Dict[str, Any]] = []
             if self.enable_fuzzy and not sections and not is_phrase:
-                context_examples = self._get_examples_payload(normalized_query)
+                context_examples = self._get_examples_payload(normalized_query, position_filter)
                 if context_examples.get("examples"):
                     sections.append({
                         "title": "上下文命中（词典未收录）",
@@ -138,7 +140,7 @@ class DictionaryService:
         with self._lock:
             return self.history_manager.get_history()
 
-    def get_examples(self, word: str) -> Dict[str, Any]:
+    def get_examples(self, word: str, position_filter: str = "any") -> Dict[str, Any]:
         normalized_word = (word or "").strip()
         if not normalized_word:
             return {
@@ -148,11 +150,12 @@ class DictionaryService:
             }
         with self._lock:
             self._ensure_connection()
-            return self._get_examples_payload(normalized_word)
+            return self._get_examples_payload(normalized_word, position_filter)
 
-    def _get_examples_payload(self, word: str) -> Dict[str, Any]:
+    def _get_examples_payload(self, word: str, position_filter: str = "any") -> Dict[str, Any]:
+        position_filter = position_filter if position_filter in {"start", "end"} else "any"
         songs = self.db_handler.find_songs_with_word(word)
-        examples, song_stats = self._process_and_deduplicate_examples(songs, word)
+        examples, song_stats = self._process_and_deduplicate_examples(songs, word, position_filter)
         valid_stats = {k: v for k, v in song_stats.items() if v["before"] > 0}
         total_before = sum(v["before"] for v in valid_stats.values())
         total_after = len(examples)
@@ -172,6 +175,7 @@ class DictionaryService:
         ]
         return {
             "ok": True, "word": word, "examples": payload_examples,
+            "position_filter": position_filter,
             "song_stats": payload_stats, "total_before": total_before, "total_after": total_after,
             "deduplication_rate": round(dedup_rate, 2),
             "message": "" if payload_examples else f"未找到包含 '{word}' 的例句。",
@@ -189,7 +193,7 @@ class DictionaryService:
             return {"ok": bool(success), "message": "歌词已保存。" if success else "保存失败，请检查数据库状态。"}
 
     def _process_and_deduplicate_examples(
-        self, songs: List[Tuple[str, str, str]], word: str,
+        self, songs: List[Tuple[str, str, str]], word: str, position_filter: str = "any",
     ) -> Tuple[List[Dict[str, str]], Dict[Tuple[str, str], Dict[str, int]]]:
         unique_examples: List[Dict[str, str]] = []
         seen_examples = set()
@@ -201,6 +205,11 @@ class DictionaryService:
             stripped_title = title.strip()
             song_key = (stripped_album, stripped_title)
             raw_paragraphs = TextProcessor.extract_valid_examples(lyric, word)
+            if position_filter != "any":
+                raw_paragraphs = [
+                    paragraph for paragraph in raw_paragraphs
+                    if TextProcessor.matches_position(paragraph, word, position_filter)
+                ]
             before_count = len(raw_paragraphs)
             if before_count == 0:
                 continue

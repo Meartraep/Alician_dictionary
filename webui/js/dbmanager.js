@@ -344,6 +344,15 @@ function dbmanagerGlobalSelectAll() {
   toast("已全选搜索结果", "info");
 }
 
+function setDbmanagerGlobalSearchVisible(visible) {
+  state.dbmanager.globalSearchVisible = Boolean(visible);
+  els.dbmGlobalBar.classList.toggle("hidden", !state.dbmanager.globalSearchVisible);
+  var results = document.getElementById("dbmGlobalResults");
+  if (results) results.classList.toggle("hidden", !state.dbmanager.globalSearchVisible);
+  els.dbmGlobalToggleBtn.textContent = state.dbmanager.globalSearchVisible
+    ? "隐藏全局搜索" : "显示全局搜索";
+}
+
 async function dbmanagerGlobalReplace() {
   var kw = (els.dbmGlobalSearchInput?.value || "").trim();
   var rep = (els.dbmReplaceInput?.value || "").trim();
@@ -382,6 +391,12 @@ function bindDbmanagerEvents() {
   els.dbmRefreshBtn.addEventListener("click", dbmanagerRefresh);
   els.dbmSearchBtn.addEventListener("click", dbmanagerSearch);
   els.dbmShowAllBtn.addEventListener("click", dbmanagerShowAll);
+  els.dbmGlobalToggleBtn.addEventListener("click", function () {
+    setDbmanagerGlobalSearchVisible(!state.dbmanager.globalSearchVisible);
+  });
+  els.dbmGlobalCloseBtn.addEventListener("click", function () {
+    setDbmanagerGlobalSearchVisible(false);
+  });
   els.dbmAddBtn.addEventListener("click", dbmanagerAddRecord);
   els.dbmDeleteBtn.addEventListener("click", dbmanagerDeleteRecords);
   els.dbmDiscardBtn.addEventListener("click", dbmanagerDiscardEdits);

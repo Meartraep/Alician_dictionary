@@ -42,13 +42,14 @@ function renderLyricWithFocus(lyric, word, start, end) {
   return _stripColonsFromAlicFont(raw);
 }
 
-async function runDictionarySearch(query, exactMatch) {
+async function runDictionarySearch(query, exactMatch, positionFilter) {
   var q = String(query ?? els.dictQuery.value).trim();
   if (!q) return toast("请输入要查询的词。", "warn");
   var exact = Boolean(exactMatch ?? els.dictExact.checked);
-  saveJson(STORAGE_KEYS.dictSnapshot, { query: q, exact: exact });
+  var position = String(positionFilter ?? (els.dictPositionFilter.value || "any"));
+  saveJson(STORAGE_KEYS.dictSnapshot, { query: q, exact: exact, position: position });
   try {
-    var ret = await callApi("dictionary_search", q, exact);
+    var ret = await callApi("dictionary_search", q, exact, position);
     renderDictionaryResults(ret);
   } catch (err) { toast("查询失败：" + err.message, "warn", 3200); }
 }
@@ -124,7 +125,7 @@ async function loadDictionaryExamples(word) {
   var target = String(word || "").trim();
   if (!target) return;
   try {
-    var ret = await callApi("dictionary_examples", target);
+    var ret = await callApi("dictionary_examples", target, els.dictPositionFilter.value || "any");
     state.dictionary.currentExamplesPayload = ret;
     renderDictionaryExamples(ret);
   } catch (err) { toast("加载例句失败：" + err.message, "warn", 3200); }
@@ -329,8 +330,9 @@ async function restoreModuleSnapshot(appId, shouldRunSearch) {
     var snapshot = loadJson(STORAGE_KEYS.dictSnapshot, {});
     if (typeof snapshot.query === "string") els.dictQuery.value = snapshot.query;
     els.dictExact.checked = Boolean(snapshot.exact);
+    els.dictPositionFilter.value = snapshot.position || "any";
     if (shouldRunSearch && String(snapshot.query || "").trim()) {
-      await runDictionarySearch(snapshot.query, Boolean(snapshot.exact));
+      await runDictionarySearch(snapshot.query, Boolean(snapshot.exact), snapshot.position || "any");
     }
     return;
   }

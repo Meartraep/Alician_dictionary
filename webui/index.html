@@ -27,11 +27,19 @@
             <div class="dictionary-left card">
               <div class="toolbar compact">
                 <input id="dictQuery" type="text" placeholder="输入词语后查询" />
-                <label class="check-inline">
-                  <input id="dictExact" type="checkbox" />
-                  精确
-                </label>
-                <button id="dictSearchBtn" type="button">查询</button>
+                  <label class="check-inline">
+                    <input id="dictExact" type="checkbox" />
+                    精确
+                  </label>
+                  <label class="check-inline">
+                    位置
+                    <select id="dictPositionFilter">
+                      <option value="any">不限</option>
+                      <option value="start">句首</option>
+                      <option value="end">句尾</option>
+                    </select>
+                  </label>
+                  <button id="dictSearchBtn" type="button">查询</button>
                 <button id="dictHistoryBtn" type="button">历史</button>
               </div>
               <div id="dictHistory" class="history-pop hidden"></div>
@@ -156,8 +164,9 @@
                   <input id="dbmSearchExact" type="checkbox" />
                   精确
                 </label>
-                <button id="dbmSearchBtn" type="button">搜索</button>
-                <button id="dbmShowAllBtn" type="button">显示全部</button>
+                  <button id="dbmSearchBtn" type="button">搜索</button>
+                  <button id="dbmShowAllBtn" type="button">显示全部</button>
+                  <button id="dbmGlobalToggleBtn" type="button" class="ghost">隐藏全局搜索</button>
                 <button id="dbmUpdateWordCountBtn" type="button">更新词频/泛度</button>
                 <button id="dbmClassifyWordsBtn" type="button">更新词性统计</button>
                 <button id="dbmExportCsvBtn" type="button">导出CSV</button>
@@ -174,7 +183,7 @@
               <div id="dbmStatus" class="status-line"></div>
             </div>
           </div>
-          <div class="dbmanager-global card toolbar">
+            <div id="dbmGlobalBar" class="dbmanager-global card toolbar">
             <input id="dbmGlobalSearchInput" type="text" placeholder="全局跨表搜索..." />
             <label class="check-inline">
               <input id="dbmGlobalSearchExact" type="checkbox" />
@@ -183,9 +192,11 @@
             <button id="dbmGlobalSearchBtn" type="button">全局搜索</button>
             <button id="dbmGlobalSelectAllBtn" type="button" class="ghost">全选结果</button>
             <input id="dbmReplaceInput" type="text" placeholder="替换为..." />
-            <button id="dbmReplaceBtn" type="button">批量替换</button>
-            <span id="dbmGlobalStatus" style="font-size:12px;color:var(--muted);margin-left:10px"></span>
-          </div>
+              <button id="dbmReplaceBtn" type="button">批量替换</button>
+              <span id="dbmGlobalStatus" style="font-size:12px;color:var(--muted);margin-left:10px"></span>
+              <span style="flex:1"></span>
+              <button id="dbmGlobalCloseBtn" type="button" class="ghost" title="关闭全局搜索栏">关闭</button>
+            </div>
         </section>
 
         <section id="panel-settings" class="app-panel" data-app-panel="settings">

@@ -2,7 +2,7 @@ function bindBaseElements() {
   var ids = [
     "tabBar", "workspace", "dockHost", "floatingLayer",
     "modalRoot", "modalTitle", "modalBody", "modalCloseBtn", "toastRoot",
-    "dictLayout", "dictSplit", "dictQuery", "dictExact", "dictSearchBtn",
+    "dictLayout", "dictSplit", "dictQuery", "dictExact", "dictPositionFilter", "dictSearchBtn",
     "dictHistoryBtn", "dictHistory", "dictResults", "dictExamples",
     "writingWorkspace", "writingTop", "writingMainSplit", "writingBottomSplit",
     "writingEditor", "writingSidebar", "writingStatus", "writingExplanation",
@@ -16,11 +16,11 @@ function bindBaseElements() {
     "autoUpdateToggle", "alicFontToggle", "alicHoverToggle", "alicHoverDelaySlider", "alicHoverDelayLabel",
     "checkUpdateBtn", "updateCheckStatus", "forceDownloadBtn",
     "dbmTableList", "dbmRefreshBtn", "dbmSearchInput", "dbmSearchExact", "dbmSearchBtn",
-    "dbmShowAllBtn", "dbmAddBtn", "dbmDeleteBtn",
+    "dbmShowAllBtn", "dbmGlobalToggleBtn", "dbmAddBtn", "dbmDeleteBtn",
     "dbmDiscardBtn", "dbmCommitBtn",
     "dbmUpdateWordCountBtn", "dbmClassifyWordsBtn", "dbmExportCsvBtn", "dbmExportDbBtn",
     "dbmDataTable", "dbmStatus", "dbmGlobalSearchInput", "dbmGlobalSearchExact",
-    "dbmGlobalSearchBtn", "dbmGlobalSelectAllBtn", "dbmReplaceInput", "dbmReplaceBtn", "dbmGlobalStatus",
+    "dbmGlobalBar", "dbmGlobalSearchBtn", "dbmGlobalSelectAllBtn", "dbmReplaceInput", "dbmReplaceBtn", "dbmGlobalStatus", "dbmGlobalCloseBtn",
     "fileLoader",
   ];
   for (var i = 0; i < ids.length; i++) els[ids[i]] = document.getElementById(ids[i]);
