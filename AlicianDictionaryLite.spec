@@ -7,10 +7,13 @@ hiddenimports = [
     'classify_words',
     'update_word_count',
     'scripts.migrate_dictionary_senses',
+    'Levenshtein',
+    'Levenshtein.levenshtein_cpp',
     'webview.platforms.edgechromium',
     'webview.platforms.winforms',
 ]
 hiddenimports += collect_submodules('webview')
+hiddenimports += collect_submodules('Levenshtein')
 
 excluded_optional_modules = [
     'webui_backend.translation_service',

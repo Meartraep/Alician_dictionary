@@ -273,7 +273,10 @@ function normalizeDictionarySeparators(value) {
 function applyAppSettings(settings) {
   state.settings.alicFont = Boolean(settings?.alic_font);
   state.settings.alicHoverEnabled = settings?.alic_hover_enabled != null ? Boolean(settings.alic_hover_enabled) : true;
-  state.settings.alicHoverDelay = settings?.alic_hover_delay != null ? Number(settings.alic_hover_delay) || 300 : 300;
+  var hoverDelay = Number(settings?.alic_hover_delay);
+  state.settings.alicHoverDelay = settings?.alic_hover_delay != null && Number.isFinite(hoverDelay)
+    ? clamp(hoverDelay, 0, 1000)
+    : 300;
   if (els.alicFontToggle) els.alicFontToggle.checked = state.settings.alicFont;
   if (els.alicHoverToggle) els.alicHoverToggle.checked = state.settings.alicHoverEnabled;
   if (els.alicHoverDelaySlider) els.alicHoverDelaySlider.value = state.settings.alicHoverDelay;

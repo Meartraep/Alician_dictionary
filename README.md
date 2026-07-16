@@ -8,7 +8,7 @@
 ```
 pip install pywebview requests openpyxl python-Levenshtein
 ```
-其中，`openpyxl`和尤其是 `python-Levenshtein`是可选的，不装不会导致程序无法启动
+其中，`python-Levenshtein`用于 Full 和 Lite 的爱丽丝语拼写纠错查询；`openpyxl`仍为可选依赖。
 # 运行源代码
 ## 将代码拉取到本地
 ```

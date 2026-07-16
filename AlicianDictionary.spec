@@ -20,10 +20,13 @@ hiddenimports = [
     'scripts.migrate_dictionary_senses',
     'webui_backend.translation_service',
     'webui_backend.similarity_matcher',
+    'Levenshtein',
+    'Levenshtein.levenshtein_cpp',
     'webview.platforms.edgechromium',
     'webview.platforms.winforms',
 ]
 hiddenimports += collect_submodules('webview')
+hiddenimports += collect_submodules('Levenshtein')
 hiddenimports += collect_submodules('text2vec')
 hiddenimports += collect_submodules('transformers.models.bert')
 

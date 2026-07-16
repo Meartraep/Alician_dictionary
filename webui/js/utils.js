@@ -92,8 +92,8 @@ function toast(message, kind, duration) {
 }
 
 var _alicHoverTimer = null;
-var _alicHoverEl = null;
 var _alicHoverWordSpan = null;
+var _alicHoverPending = null;
 
 function _alicHoverClearWordSpan() {
   if (_alicHoverWordSpan && _alicHoverWordSpan.parentNode) {
@@ -115,6 +115,7 @@ function _alicGetWordRangeAtPoint(rootEl, clientX, clientY) {
   if (!range) return null;
   var node = range.startContainer;
   if (node.nodeType !== Node.TEXT_NODE) return null;
+  if (!rootEl.contains(node)) return null;
   var text = node.nodeValue || "";
   var offset = clamp(range.startOffset, 0, text.length);
   var start = offset;
@@ -126,95 +127,109 @@ function _alicGetWordRangeAtPoint(rootEl, clientX, clientY) {
     end++;
   }
   if (start === end) return null;
-  return { node: node, start: start, end: end, word: text.slice(start, end) };
+  var wordRange = document.createRange();
+  wordRange.setStart(node, start);
+  wordRange.setEnd(node, end);
+
+  // caretRangeFromPoint snaps to the nearest caret position, even when the
+  // pointer is in surrounding whitespace.  Only accept a word when the
+  // pointer is actually inside one of that word's rendered rectangles.
+  var rects = wordRange.getClientRects();
+  var pointInsideWord = false;
+  for (var i = 0; i < rects.length; i++) {
+    var rect = rects[i];
+    if (rect.width > 0 && rect.height > 0 &&
+        clientX >= rect.left && clientX <= rect.right &&
+        clientY >= rect.top && clientY <= rect.bottom) {
+      pointInsideWord = true;
+      break;
+    }
+  }
+  if (!pointInsideWord) return null;
+  return { node: node, start: start, end: end, word: text.slice(start, end), range: wordRange };
 }
 
 function _alicHoverClear() {
-  if (_alicHoverTimer) { clearTimeout(_alicHoverTimer); _alicHoverTimer = null; }
+  if (_alicHoverTimer !== null) { clearTimeout(_alicHoverTimer); _alicHoverTimer = null; }
+  _alicHoverPending = null;
   _alicHoverClearWordSpan();
-  if (_alicHoverEl) {
-    _alicHoverEl.classList.remove("alic-hover-system", "alic-hover-alic");
-    _alicHoverEl = null;
+}
+
+function _alicHoverRootAtPoint(clientX, clientY) {
+  var el = document.elementFromPoint(clientX, clientY);
+  if (!el || el.nodeType !== Node.ELEMENT_NODE) return null;
+  if (el.closest(".no-alic-font, button, input, textarea, select")) return null;
+
+  var roots = [els.writingEditor, els.dictLayout, els.dictExamples, els.writingSidebar,
+    els.writingExplanation, els.translatorDetails, els.translatorOrderList, els.modalRoot];
+  for (var i = 0; i < roots.length; i++) {
+    if (roots[i] && roots[i].contains(el)) return roots[i];
   }
+  return null;
+}
+
+function _alicSameWordRange(a, b) {
+  return Boolean(a && b && a.node === b.node && a.start === b.start && a.end === b.end);
+}
+
+function _alicHoverDelay() {
+  var delay = Number(state.settings.alicHoverDelay);
+  return Number.isFinite(delay) ? clamp(delay, 0, 1000) : 300;
 }
 
 function _alicHoverMove(e) {
   if (!state.settings.alicHoverEnabled) { _alicHoverClear(); return; }
 
-  var range = null;
-  if (document.caretRangeFromPoint) {
-    range = document.caretRangeFromPoint(e.clientX, e.clientY);
-  } else if (document.caretPositionFromPoint) {
-    var cp = document.caretPositionFromPoint(e.clientX, e.clientY);
-    if (cp) { range = document.createRange(); range.setStart(cp.offsetNode, cp.offset); range.collapse(true); }
-  }
+  var root = _alicHoverRootAtPoint(e.clientX, e.clientY);
+  var wordRange = root ? _alicGetWordRangeAtPoint(root, e.clientX, e.clientY) : null;
+  if (!wordRange) { _alicHoverClear(); return; }
 
-  var el = null;
-  if (range) {
-    el = range.startContainer.nodeType === Node.TEXT_NODE
-      ? range.startContainer.parentElement
-      : range.startContainer;
-  }
-  if (!el) el = document.elementFromPoint(e.clientX, e.clientY);
-  if (!el) { _alicHoverClear(); return; }
+  // The active wrapper is itself now the hit text node. Keep it only while
+  // the pointer remains geometrically inside that exact wrapper.
+  if (_alicHoverWordSpan && _alicHoverWordSpan.contains(wordRange.node)) return;
 
-  var tn = el.tagName;
-  if (tn === "BUTTON" || tn === "INPUT" || tn === "TEXTAREA" || tn === "SELECT") {
-    _alicHoverClear();
-    return;
-  }
-  if (el.closest(".no-alic-font") || el.closest("button") || el.closest("input") || el.closest("textarea")) {
-    _alicHoverClear();
+  if (_alicSameWordRange(_alicHoverPending, wordRange)) {
+    _alicHoverPending.clientX = e.clientX;
+    _alicHoverPending.clientY = e.clientY;
     return;
   }
 
-  var inEditor = els.writingEditor && els.writingEditor.contains(el);
-
-  if (inEditor) {
-    var wordRange = _alicGetWordRangeAtPoint(els.writingEditor, e.clientX, e.clientY);
-    if (wordRange) {
-      if (_alicHoverWordSpan && _alicHoverWordSpan.parentNode) {
-        var currentText = _alicHoverWordSpan.textContent;
-        var currentWord = currentText || "";
-        if (currentWord === wordRange.word) return;
-      }
-      _alicHoverClear();
-      var wrapRange = document.createRange();
-      wrapRange.setStart(wordRange.node, wordRange.start);
-      wrapRange.setEnd(wordRange.node, wordRange.end);
-      var span = document.createElement("span");
-      var delay = state.settings.alicHoverDelay || 300;
-      _alicHoverTimer = setTimeout(function () {
-        if (!_alicHoverWordSpan) {
-          try { wrapRange.surroundContents(span); } catch (_) {}
-          if (span.parentNode) {
-            _alicHoverWordSpan = span;
-            if (state.settings.alicFont) {
-              _alicHoverWordSpan.classList.add("alic-hover-system");
-            } else {
-              _alicHoverWordSpan.classList.add("alic-hover-alic");
-            }
-          }
-        }
-      }, delay);
-    } else {
-      _alicHoverClear();
-    }
-    return;
-  }
-
-  if (el === _alicHoverEl) return;
+  // Removing the previous wrapper normalizes text nodes, invalidating ranges
+  // captured before cleanup. Recompute the target after every DOM restoration.
   _alicHoverClear();
-  _alicHoverEl = el;
-  var delay = state.settings.alicHoverDelay || 300;
+  root = _alicHoverRootAtPoint(e.clientX, e.clientY);
+  wordRange = root ? _alicGetWordRangeAtPoint(root, e.clientX, e.clientY) : null;
+  if (!wordRange) return;
+
+  wordRange.root = root;
+  wordRange.clientX = e.clientX;
+  wordRange.clientY = e.clientY;
+  _alicHoverPending = wordRange;
   _alicHoverTimer = setTimeout(function () {
-    if (!_alicHoverEl) return;
-    if (state.settings.alicFont) {
-      _alicHoverEl.classList.add("alic-hover-system");
-    } else {
-      _alicHoverEl.classList.add("alic-hover-alic");
+    _alicHoverTimer = null;
+    var pending = _alicHoverPending;
+    if (!pending || _alicHoverWordSpan) return;
+
+    // Revalidate at firing time so scrolling, rerendering, or layout changes
+    // during the delay cannot apply a font to a stale word.
+    var currentRoot = _alicHoverRootAtPoint(pending.clientX, pending.clientY);
+    var current = currentRoot
+      ? _alicGetWordRangeAtPoint(currentRoot, pending.clientX, pending.clientY)
+      : null;
+    if (currentRoot !== pending.root || !_alicSameWordRange(pending, current)) {
+      _alicHoverPending = null;
+      return;
     }
-  }, delay);
+
+    var span = document.createElement("span");
+    try { current.range.surroundContents(span); } catch (_) {
+      _alicHoverPending = null;
+      return;
+    }
+    _alicHoverPending = null;
+    _alicHoverWordSpan = span;
+    span.classList.add(state.settings.alicFont ? "alic-hover-system" : "alic-hover-alic");
+  }, _alicHoverDelay());
 }
 
 function bindAlicHover() {
@@ -230,4 +245,6 @@ function bindAlicHover() {
     els.modalRoot.addEventListener("mousemove", _alicHoverMove);
     els.modalRoot.addEventListener("mouseleave", _alicHoverClear);
   }
+  window.addEventListener("blur", _alicHoverClear);
+  window.addEventListener("scroll", _alicHoverClear, true);
 }

@@ -12,24 +12,40 @@ from webui_backend.dictionary_core import DatabaseHandler, DictionaryConfig, His
 logger = logging.getLogger(__name__)
 
 try:
+    from Levenshtein import distance as _lev_distance
     from Levenshtein import ratio as _lev_ratio
 except Exception:
     from difflib import SequenceMatcher
+
+    def _lev_distance(left: str, right: str) -> int:
+        previous = list(range(len(right) + 1))
+        for left_index, left_char in enumerate(left, 1):
+            current = [left_index]
+            for right_index, right_char in enumerate(right, 1):
+                current.append(min(
+                    current[-1] + 1,
+                    previous[right_index] + 1,
+                    previous[right_index - 1] + (left_char != right_char),
+                ))
+            previous = current
+        return previous[-1]
 
     def _lev_ratio(left: str, right: str) -> float:
         return SequenceMatcher(None, left, right).ratio()
 
 
 class DictionaryService:
-    def __init__(self, enable_fuzzy: bool | None = None) -> None:
+    def __init__(self, enable_semantic: bool | None = None) -> None:
         self._lock = threading.RLock()
-        self.enable_fuzzy = (not is_lite_build()) if enable_fuzzy is None else bool(enable_fuzzy)
+        self.enable_fuzzy = True
+        self.enable_semantic = (not is_lite_build()) if enable_semantic is None else bool(enable_semantic)
         self.db_handler = DatabaseHandler(DictionaryConfig.CURRENT_DB)
         if not self.db_handler.connect():
             raise RuntimeError(f"Failed to connect to dictionary database: {DictionaryConfig.CURRENT_DB}")
         self.history_manager = HistoryManager()
-        self.similarity_matcher = self._create_similarity_matcher() if self.enable_fuzzy else None
+        self.similarity_matcher = self._create_similarity_matcher() if self.enable_semantic else None
         self._similarity_index_built = False
+        self._spelling_candidates: List[Tuple[str, str]] | None = None
 
     def _create_similarity_matcher(self) -> Any:
         try:
@@ -54,6 +70,53 @@ class DictionaryService:
                 self.similarity_matcher.build_index(word_explanation_pairs)
         except Exception:
             logger.warning("构建相似度索引时发生异常", exc_info=True)
+
+    @staticmethod
+    def _is_chinese_query(query: str) -> bool:
+        return re.search(r"[\u3400-\u9fff]", query or "") is not None
+
+    def _find_spelling_suggestions(self, query: str, top_k: int = 5) -> List[Dict[str, Any]]:
+        normalized_query = (query or "").strip().casefold()
+        if len(normalized_query) < 2:
+            return []
+        if self._spelling_candidates is None:
+            self._spelling_candidates = [
+                (str(word or "").strip(), str(explanation or "").strip())
+                for word, explanation in self.db_handler.get_all_words()
+                if str(word or "").strip()
+            ]
+
+        query_length = len(normalized_query)
+        if query_length <= 4:
+            max_distance = 1
+        elif query_length <= 8:
+            max_distance = 2
+        else:
+            max_distance = max(2, round(query_length * 0.25))
+
+        ranked: List[Tuple[int, float, str, str]] = []
+        seen = set()
+        for word, explanation in self._spelling_candidates:
+            normalized_word = word.casefold()
+            if normalized_word in seen or abs(len(normalized_word) - query_length) > max_distance:
+                continue
+            seen.add(normalized_word)
+            distance = int(_lev_distance(normalized_query, normalized_word))
+            if distance == 0 or distance > max_distance:
+                continue
+            ranked.append((distance, float(_lev_ratio(normalized_query, normalized_word)), word, explanation))
+
+        ranked.sort(key=lambda item: (item[0], -item[1], abs(len(item[2]) - query_length), item[2].casefold()))
+        return [
+            {
+                "explanation": explanation,
+                "words": [word],
+                "similarity": round(similarity, 4),
+                "distance": distance,
+                "method": "spelling",
+            }
+            for distance, similarity, word, explanation in ranked[:max(1, int(top_k))]
+        ]
 
     def search(
         self, query: str, exact_match: bool = False, position_filter: str = "any",
@@ -107,25 +170,28 @@ class DictionaryService:
             context_examples: Dict[str, Any] | None = None
             suggestions: List[Dict[str, Any]] = []
             if self.enable_fuzzy and not sections and not is_phrase:
-                context_examples = self._get_examples_payload(normalized_query, position_filter)
-                if context_examples.get("examples"):
-                    sections.append({
-                        "title": "上下文命中（词典未收录）",
-                        "kind": "context",
-                        "entries": [{
-                            "word": normalized_query,
-                            "explanation": "词典中未收录该词，但在歌词上下文中找到了匹配。",
-                            "word_class": "未收录词",
+                if self._is_chinese_query(normalized_query):
+                    if self.similarity_matcher is not None and not self._similarity_index_built:
+                        self._build_similarity_index()
+                        self._similarity_index_built = True
+                    if self.similarity_matcher is not None:
+                        suggestions = self.similarity_matcher.find_similar(normalized_query)
+                else:
+                    context_examples = self._get_examples_payload(normalized_query, position_filter)
+                    if context_examples.get("examples"):
+                        sections.append({
+                            "title": "上下文命中（词典未收录）",
                             "kind": "context",
-                            "count": context_examples.get("total_after", 0),
-                            "variety": len(context_examples.get("song_stats", [])),
-                        }],
-                    })
-                if self.similarity_matcher is not None and not self._similarity_index_built:
-                    self._build_similarity_index()
-                    self._similarity_index_built = True
-                if self.similarity_matcher is not None:
-                    suggestions = self.similarity_matcher.find_similar(normalized_query)
+                            "entries": [{
+                                "word": normalized_query,
+                                "explanation": "词典中未收录该词，但在歌词上下文中找到了匹配。",
+                                "word_class": "未收录词",
+                                "kind": "context",
+                                "count": context_examples.get("total_after", 0),
+                                "variety": len(context_examples.get("song_stats", [])),
+                            }],
+                        })
+                    suggestions = self._find_spelling_suggestions(normalized_query)
             return {
                 "ok": True, "query": normalized_query, "exact_match": effective_exact,
                 "is_phrase": is_phrase, "sections": sections,
@@ -133,7 +199,10 @@ class DictionaryService:
                 "message": "" if sections else f"未搜索到对应单词：'{normalized_query}'。",
                 "suggestions": suggestions,
                 "context_examples": context_examples,
-                "features": {"fuzzy_search": self.enable_fuzzy},
+                "features": {
+                    "fuzzy_search": self.enable_fuzzy,
+                    "semantic_search": self.enable_semantic,
+                },
             }
 
     def get_history(self) -> List[str]:

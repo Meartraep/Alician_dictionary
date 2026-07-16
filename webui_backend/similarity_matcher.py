@@ -144,7 +144,9 @@ class SimilarityMatcher:
             return
 
         try:
-            self._embeddings = self._model.encode(self._explanations)
+            embeddings = _NP.asarray(self._model.encode(self._explanations), dtype=float)
+            norms = _NP.linalg.norm(embeddings, axis=1, keepdims=True)
+            self._embeddings = embeddings / _NP.maximum(norms, 1e-12)
             self._ready = True
             logger.info(f"相似度索引构建完成，共 {len(self._explanations)} 条中文释义")
         except Exception as e:
@@ -160,8 +162,10 @@ class SimilarityMatcher:
             return []
 
         try:
-            query_embedding = self._model.encode([query])
-            scores = _NP.dot(query_embedding, self._embeddings.T)[0]
+            query_embedding = _NP.asarray(self._model.encode([query]), dtype=float)
+            query_norms = _NP.linalg.norm(query_embedding, axis=1, keepdims=True)
+            query_embedding = query_embedding / _NP.maximum(query_norms, 1e-12)
+            scores = _NP.clip(_NP.dot(query_embedding, self._embeddings.T)[0], -1.0, 1.0)
 
             top_indices = _NP.argsort(scores)[-top_k:][::-1]
 
@@ -177,6 +181,7 @@ class SimilarityMatcher:
                         "explanation": explanation,
                         "words": words,
                         "similarity": round(score, 4),
+                        "method": "semantic",
                     }
                 )
             return results

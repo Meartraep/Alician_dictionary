@@ -104,8 +104,10 @@ function renderDictionaryResults(payload) {
 
 function renderDictionarySuggestions(suggestions) {
   if (!suggestions || !suggestions.length) return "";
+  var spellingOnly = suggestions.every(function (item) { return item.method === "spelling"; });
   return '<section class="result-section">' +
-    '<div class="result-section-title">词义相似词推荐</div>' +
+    '<div class="result-section-title">' +
+    (spellingOnly ? '拼写相近词推荐' : '词义相似词推荐') + '</div>' +
     suggestions.map(function (item) {
       var wordLinks = (item.words || []).map(function (w) {
         return '<span class="suggestion-word-link" data-query="' +
@@ -114,7 +116,7 @@ function renderDictionarySuggestions(suggestions) {
       return '<div class="result-item suggestion-item">' +
         '<div class="result-main"><span class="no-alic-font">' +
         escapeHtml(item.explanation || "") + '</span></div>' +
-        '<div class="result-meta">相似度: ' + (item.similarity != null ?
+        '<div class="result-meta">' + (item.method === "spelling" ? '拼写相似度' : '语义相似度') + ': ' + (item.similarity != null ?
           (item.similarity * 100).toFixed(1) + '%' : 'N/A') + '</div>' +
         '<div class="result-meta">对应爱丽丝语: ' + wordLinks + '</div>' +
         '</div>';

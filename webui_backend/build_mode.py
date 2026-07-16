@@ -18,5 +18,6 @@ def feature_flags() -> dict:
     return {
         "lite": lite,
         "translator": not lite,
-        "fuzzy_search": not lite,
+        "fuzzy_search": True,
+        "semantic_search": not lite,
     }

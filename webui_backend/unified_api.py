@@ -90,7 +90,7 @@ class UnifiedAPI:
 
     def _open_worker_services(self) -> None:
         self._configure_runtime_paths(self._data_root)
-        self._dictionary_service = DictionaryService(enable_fuzzy=self._features["fuzzy_search"])
+        self._dictionary_service = DictionaryService(enable_semantic=self._features["semantic_search"])
         self._writing_service = WritingAssistantService()
         if self._features["translator"]:
             from importlib import import_module
