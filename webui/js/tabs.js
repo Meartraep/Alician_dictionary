@@ -12,7 +12,8 @@ function bindBaseElements() {
     "excludedInput", "excludedAddBtn",
     "excludedList", "settingsSaveBtn", "settingsCloseBtn",
     "translatorDirection", "translatorSwapBtn", "translatorTranslateBtn",
-    "translatorInput", "translatorOutput", "translatorSplit", "translatorDetails", "translatorStatus",
+    "translatorInput", "translatorOutput", "translatorMainSplit", "translatorSplit",
+    "translatorDetails", "translatorOrderList", "translatorStatus",
     "autoUpdateToggle", "alicFontToggle", "alicHoverToggle", "alicHoverDelaySlider", "alicHoverDelayLabel",
     "checkUpdateBtn", "updateCheckStatus", "forceDownloadBtn",
     "dbmTableList", "dbmRefreshBtn", "dbmSearchInput", "dbmSearchExact", "dbmSearchBtn",
@@ -126,6 +127,7 @@ function saveModuleSnapshot(appId) {
       input: els.translatorInput?.value || "",
       output: els.translatorOutput?.value || "",
       result: state.translator.lastResult || null,
+      tokenOrder: state.translator.tokenOrder || [],
     });
   }
 }

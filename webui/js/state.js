@@ -15,6 +15,7 @@ var STORAGE_KEYS = {
   dictSnapshot: "ui.dictionary.snapshot",
   writingSnapshot: "ui.writing.snapshot",
   translatorSnapshot: "ui.translator.snapshot",
+  translatorMain: "ui.translator.mainRatio",
   translatorOutput: "ui.translator.outputRatio",
 };
 
@@ -56,7 +57,10 @@ var state = {
     },
     selectedSidebarKey: "", infoPopup: null, isComposing: false,
   },
-  translator: { direction: "zh_to_alician", lastResult: null, isBusy: false },
+  translator: {
+    direction: "zh_to_alician", lastResult: null, isBusy: false,
+    tokenOrder: [], draggedTokenIndex: null,
+  },
   settings: { alicFont: false, alicHoverEnabled: true, alicHoverDelay: 300 },
 };
 

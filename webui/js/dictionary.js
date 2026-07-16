@@ -357,6 +357,7 @@ async function restoreModuleSnapshot(appId, shouldRunSearch) {
     if (typeof trSnap.input === "string") els.translatorInput.value = trSnap.input;
     if (typeof trSnap.output === "string") els.translatorOutput.value = trSnap.output;
     state.translator.lastResult = trSnap.result || null;
+    state.translator.tokenOrder = Array.isArray(trSnap.tokenOrder) ? trSnap.tokenOrder : [];
     renderTranslatorResult(state.translator.lastResult);
   }
 }

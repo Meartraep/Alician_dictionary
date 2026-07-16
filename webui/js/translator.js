@@ -6,9 +6,45 @@ function translatorStatusLabel(status) {
   return status || "";
 }
 
+function getTranslatorWordRows(payload) {
+  return (payload?.tokens || []).map(function (token, index) {
+    return { token: token, index: index };
+  }).filter(function (row) {
+    return ["space", "punct"].indexOf(row.token.status) < 0;
+  });
+}
+
+function normalizeTranslatorTokenOrder(payload) {
+  var sourceOrder = getTranslatorWordRows(payload).map(function (row) { return row.index; });
+  var valid = new Set(sourceOrder);
+  var seen = new Set();
+  var order = (state.translator.tokenOrder || []).filter(function (index) {
+    if (!valid.has(index) || seen.has(index)) return false;
+    seen.add(index);
+    return true;
+  });
+  sourceOrder.forEach(function (index) {
+    if (!seen.has(index)) order.push(index);
+  });
+  state.translator.tokenOrder = order;
+  return order;
+}
+
+function getTranslatorTokensInDisplayOrder(payload) {
+  var tokens = payload?.tokens || [];
+  var order = normalizeTranslatorTokenOrder(payload);
+  var cursor = 0;
+  return tokens.map(function (token) {
+    if (["space", "punct"].indexOf(token.status) >= 0) return token;
+    var orderedToken = tokens[order[cursor]] || token;
+    cursor += 1;
+    return orderedToken;
+  });
+}
+
 function composeTranslatorResult(payload) {
   if (!payload) return "";
-  var tokens = payload.tokens || [];
+  var tokens = getTranslatorTokensInDisplayOrder(payload);
   var direction = payload.direction || "zh_to_alician";
   if (direction === "alician_to_zh") {
     return tokens.map(function (token) {
@@ -37,6 +73,30 @@ function composeTranslatorResult(payload) {
     out.push(target);
   }
   return out.join("").trim();
+}
+
+function renderTranslatorOrderList(payload) {
+  if (!els.translatorOrderList) return;
+  if (!payload) {
+    els.translatorOrderList.innerHTML =
+      '<div class="result-meta">翻译后可在此拖动单词卡片，精调译文语序。</div>';
+    return;
+  }
+  var tokens = payload.tokens || [];
+  var order = normalizeTranslatorTokenOrder(payload);
+  if (!order.length) {
+    els.translatorOrderList.innerHTML = '<div class="result-item">暂无可排序的单词。</div>';
+    return;
+  }
+  els.translatorOrderList.innerHTML = order.map(function (tokenIndex) {
+    var token = tokens[tokenIndex] || {};
+    return '<div class="translator-order-token ' + escapeHtml(token.status || "") +
+      '" data-token-index="' + tokenIndex + '">' +
+      '<span class="translator-token-source">' + escapeHtml(token.source || "") + '</span>' +
+      '<span class="translator-arrow">→</span>' +
+      '<span class="translator-token-target">' + escapeHtml(token.target || "") + '</span>' +
+      '</div>';
+  }).join("");
 }
 
 function applyTranslatorAlternative(tokenIndex, altIndex) {
@@ -68,12 +128,12 @@ function renderTranslatorResult(payload) {
     if (els.translatorStatus && !els.translatorStatus.textContent) {
       els.translatorStatus.textContent = "就绪";
     }
+    renderTranslatorOrderList(null);
     return;
   }
 
-  if (typeof payload.result_text === "string") {
-    els.translatorOutput.value = payload.result_text;
-  }
+  payload.result_text = composeTranslatorResult(payload);
+  els.translatorOutput.value = payload.result_text;
 
   var stats = payload.stats || {};
   els.translatorStatus.textContent = (payload.message || "翻译完成。") +
@@ -81,14 +141,11 @@ function renderTranslatorResult(payload) {
     "，近似 " + (stats.approximate || 0) +
     "，缺词 " + (stats.unknown || 0);
 
-  var rows = (payload.tokens || []).map(function (token, index) {
-    return { token: token, index: index };
-  }).filter(function (row) {
-    return ["space", "punct"].indexOf(row.token.status) < 0;
-  });
+  var rows = getTranslatorWordRows(payload);
 
   if (!rows.length) {
     els.translatorDetails.innerHTML = '<div class="result-item">暂无可显示的词条明细。</div>';
+    renderTranslatorOrderList(payload);
     return;
   }
 
@@ -125,6 +182,7 @@ function renderTranslatorResult(payload) {
       (alternatives ? '<div class="translator-alts">' + alternatives + '</div>' : '') +
       '</div>';
   }).join("");
+  renderTranslatorOrderList(payload);
 }
 
 function bindTranslatorSplitter() {
@@ -150,6 +208,121 @@ function bindTranslatorSplitter() {
     }
     window.addEventListener("mousemove", move);
     window.addEventListener("mouseup", up);
+  });
+
+  if (!els.translatorMainSplit) return;
+  var mainInitial = clamp(loadRatio(STORAGE_KEYS.translatorMain, 50), 22, 78);
+  document.documentElement.style.setProperty("--translator-main", mainInitial + "%");
+  els.translatorMainSplit.addEventListener("mousedown", function (e) {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    document.body.classList.add("splitter-active");
+    function move(evt) {
+      var layout = els.translatorMainSplit.closest(".translator-layout");
+      if (!layout) return;
+      var rect = layout.getBoundingClientRect();
+      var stacked = window.matchMedia("(max-width: 980px)").matches;
+      var ratio = stacked
+        ? ((evt.clientY - rect.top) / rect.height) * 100
+        : ((evt.clientX - rect.left) / rect.width) * 100;
+      ratio = clamp(ratio, 22, 78);
+      document.documentElement.style.setProperty("--translator-main", ratio + "%");
+      saveRatio(STORAGE_KEYS.translatorMain, ratio);
+    }
+    function up() {
+      document.body.classList.remove("splitter-active");
+      window.removeEventListener("mousemove", move);
+      window.removeEventListener("mouseup", up);
+    }
+    window.addEventListener("mousemove", move);
+    window.addEventListener("mouseup", up);
+  });
+}
+
+function clearTranslatorOrderDropState() {
+  if (!els.translatorOrderList) return;
+  els.translatorOrderList.querySelectorAll(".drag-before, .drag-after").forEach(function (node) {
+    node.classList.remove("drag-before", "drag-after");
+  });
+}
+
+function moveTranslatorToken(draggedIndex, targetIndex, insertAfter) {
+  var payload = state.translator.lastResult;
+  if (!payload || draggedIndex === targetIndex) return;
+  var order = normalizeTranslatorTokenOrder(payload).slice();
+  var from = order.indexOf(draggedIndex);
+  if (from < 0) return;
+  order.splice(from, 1);
+  var target = order.indexOf(targetIndex);
+  if (target < 0) return;
+  order.splice(target + (insertAfter ? 1 : 0), 0, draggedIndex);
+  state.translator.tokenOrder = order;
+  payload.result_text = composeTranslatorResult(payload);
+  renderTranslatorResult(payload);
+  saveModuleSnapshot("translator");
+}
+
+function bindTranslatorOrderDragging() {
+  if (!els.translatorOrderList) return;
+  els.translatorOrderList.addEventListener("pointerdown", function (e) {
+    if (e.button !== 0) return;
+    var card = e.target.closest(".translator-order-token[data-token-index]");
+    if (!card) return;
+    var draggedIndex = Number(card.dataset.tokenIndex);
+    var startX = e.clientX;
+    var startY = e.clientY;
+    var isDragging = false;
+    state.translator.draggedTokenIndex = draggedIndex;
+
+    function move(evt) {
+      if (!isDragging && Math.hypot(evt.clientX - startX, evt.clientY - startY) < 4) return;
+      isDragging = true;
+      evt.preventDefault();
+      card.classList.add("dragging");
+      clearTranslatorOrderDropState();
+      var listRect = els.translatorOrderList.getBoundingClientRect();
+      if (evt.clientY < listRect.top + 28) els.translatorOrderList.scrollTop -= 12;
+      else if (evt.clientY > listRect.bottom - 28) els.translatorOrderList.scrollTop += 12;
+      var target = document.elementFromPoint(evt.clientX, evt.clientY)?.closest(
+        ".translator-order-token[data-token-index]"
+      );
+      if (!target || target === card || !els.translatorOrderList.contains(target)) return;
+      var rect = target.getBoundingClientRect();
+      target.classList.add(evt.clientY >= rect.top + rect.height / 2 ? "drag-after" : "drag-before");
+    }
+
+    function up(evt) {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      window.removeEventListener("pointercancel", cancel);
+      if (isDragging) {
+        var target = document.elementFromPoint(evt.clientX, evt.clientY)?.closest(
+          ".translator-order-token[data-token-index]"
+        );
+        if (target && target !== card && els.translatorOrderList.contains(target)) {
+          var rect = target.getBoundingClientRect();
+          moveTranslatorToken(
+            draggedIndex,
+            Number(target.dataset.tokenIndex),
+            evt.clientY >= rect.top + rect.height / 2
+          );
+        }
+      }
+      cancel();
+    }
+
+    function cancel() {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      window.removeEventListener("pointercancel", cancel);
+      state.translator.draggedTokenIndex = null;
+      card.classList.remove("dragging");
+      clearTranslatorOrderDropState();
+    }
+
+    window.addEventListener("pointermove", move, { passive: false });
+    window.addEventListener("pointerup", up);
+    window.addEventListener("pointercancel", cancel);
   });
 }
 
@@ -180,6 +353,7 @@ async function runTranslator() {
   try {
     var ret = await callApi("translator_translate", text, direction);
     state.translator.lastResult = ret;
+    state.translator.tokenOrder = [];
     renderTranslatorResult(ret);
     saveModuleSnapshot("translator");
   } catch (err) {
@@ -200,6 +374,7 @@ function swapTranslatorDirection() {
     els.translatorInput.value = output;
     els.translatorOutput.value = "";
     state.translator.lastResult = null;
+    state.translator.tokenOrder = [];
     renderTranslatorResult(null);
   }
   updateTranslatorPlaceholder();
@@ -209,6 +384,7 @@ function swapTranslatorDirection() {
 function bindTranslatorEvents() {
   if (!els.translatorInput) return;
   bindTranslatorSplitter();
+  bindTranslatorOrderDragging();
   updateTranslatorPlaceholder();
   renderTranslatorResult(null);
 
@@ -223,6 +399,8 @@ function bindTranslatorEvents() {
   });
   els.translatorInput.addEventListener("input", function () {
     state.translator.lastResult = null;
+    state.translator.tokenOrder = [];
+    renderTranslatorResult(null);
     saveModuleSnapshot("translator");
   });
   els.translatorInput.addEventListener("keydown", function (e) {

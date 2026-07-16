@@ -140,11 +140,22 @@
               <div class="panel-subtitle">输入</div>
               <textarea id="translatorInput" spellcheck="false" placeholder="输入中文自然语言，或输入爱丽丝语文本..."></textarea>
             </div>
+            <div id="translatorMainSplit" class="splitter vertical" title="拖动调整输入与翻译结果占比"></div>
             <div class="translator-pane translator-result-pane card">
               <div class="panel-subtitle">结果</div>
               <textarea id="translatorOutput" readonly spellcheck="false" placeholder="翻译结果会显示在这里"></textarea>
               <div id="translatorSplit" class="splitter horizontal" title="拖动调整结果与候选词列表占比"></div>
-              <div id="translatorDetails" class="translator-details scroll-panel"></div>
+              <div class="translator-word-workspace">
+                <div class="translator-word-column">
+                  <div class="translator-list-title">单词明细</div>
+                  <div id="translatorDetails" class="translator-details scroll-panel"></div>
+                </div>
+                <div class="translator-word-divider" aria-hidden="true"></div>
+                <div class="translator-word-column">
+                  <div class="translator-list-title">语序调整 <span>拖动卡片排序</span></div>
+                  <div id="translatorOrderList" class="translator-order-list scroll-panel"></div>
+                </div>
+              </div>
             </div>
           </div>
         </section>

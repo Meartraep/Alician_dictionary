@@ -6,8 +6,9 @@ import sqlite3
 import threading
 import logging
 import math
+from collections import Counter, defaultdict
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Counter as CounterType, DefaultDict, Dict, List, Optional, Tuple
 
 from webui_backend.dictionary_service import _lev_ratio
 from webui_backend.similarity_matcher import SimilarityMatcher
@@ -44,12 +45,7 @@ def _as_int(value: Any) -> int:
 
 
 class TranslationService:
-    """Bidirectional translator between Chinese and Alician.
-
-    Chinese -> Alician currently preserves source token order. The ordering step
-    is deliberately isolated so later grammar-specific reordering can be added
-    without changing matching and unknown-word handling.
-    """
+    """Bidirectional translator with dictionary and corpus-backed grammar."""
 
     def __init__(self, db_path: Optional[str] = None) -> None:
         self._lock = threading.RLock()
@@ -62,10 +58,18 @@ class TranslationService:
         self._phrases: List[Dict[str, Any]] = []
         self._term_candidates: Dict[str, List[Dict[str, Any]]] = {}
         self._max_term_len = 1
+        self._sentence_patterns: DefaultDict[
+            Tuple[Tuple[str, int], ...], CounterType[Tuple[str, ...]]
+        ] = defaultdict(Counter)
+        self._core_sentence_patterns: DefaultDict[
+            Tuple[Tuple[str, int], ...], CounterType[Tuple[str, ...]]
+        ] = defaultdict(Counter)
+        self._sentence_pattern_examples: Dict[Tuple[str, ...], str] = {}
         self._similarity_matcher = SimilarityMatcher()
         self._similarity_index_built = False
         self._jieba: Any = None
         self._load_entries()
+        self._load_sentence_patterns()
         self._try_load_jieba()
 
     def close(self) -> None:
@@ -139,6 +143,49 @@ class TranslationService:
             self._entries.append(entry)
             self._index_chinese_terms(entry)
         self._phrases.sort(key=lambda item: len(item.get("phrase_words", [])), reverse=True)
+
+    @staticmethod
+    def _pattern_signature(families: List[str]) -> Tuple[Tuple[str, int], ...]:
+        return tuple(sorted(Counter(families).items()))
+
+    def _load_sentence_patterns(self) -> None:
+        """Index fully recognized POS patterns attested in the song corpus."""
+        try:
+            rows = self._conn.execute(
+                "SELECT lyric FROM songs WHERE lyric IS NOT NULL AND TRIM(lyric) <> ''"
+            ).fetchall()
+        except sqlite3.Error:
+            return
+
+        for row in rows:
+            for raw_line in str(row["lyric"] or "").splitlines():
+                line = raw_line.strip()
+                if not line or re.search(r"[：:]", line):
+                    continue
+                words = re.findall(r"[A-Za-z][A-Za-z'-]*", line)
+                if len(words) < 3 or len(words) > 12:
+                    continue
+                families: List[str] = []
+                recognized = True
+                for word in words:
+                    entry = self._best_word_entry(word)
+                    if not entry:
+                        recognized = False
+                        break
+                    families.append(self._pos_family(entry["word_class"]))
+                if not recognized or families.count("v") != 1:
+                    continue
+                if sum(family in {"n", "pron"} for family in families) < 1:
+                    continue
+                pattern = tuple(families)
+                self._sentence_patterns[self._pattern_signature(families)][pattern] += 1
+                core_pattern = tuple(
+                    family for family in families if family in {"n", "pron", "v"}
+                )
+                self._core_sentence_patterns[
+                    self._pattern_signature(list(core_pattern))
+                ][core_pattern] += 1
+                self._sentence_pattern_examples.setdefault(pattern, line)
 
     def _make_entry(
         self,
@@ -344,12 +391,171 @@ class TranslationService:
                 index += 1
         return arranged
 
+    def _arrange_by_attested_pattern(
+        self, tokens: List[Dict[str, Any]], families: List[str],
+    ) -> Optional[List[Dict[str, Any]]]:
+        """Apply a dominant corpus POS pattern with the same lexical inventory."""
+        if len(tokens) < 3 or len(tokens) > 12 or "unknown" in families:
+            return None
+        if any(token.get("status") != "exact" for token in tokens):
+            return None
+        if any(token.get("syntax_role") == "possessive_marker" for token in tokens):
+            return None
+        match = self._dominant_sentence_pattern(families)
+        if match is None:
+            return None
+        pattern, count, confidence = match
+
+        available: DefaultDict[str, List[int]] = defaultdict(list)
+        for index, family in enumerate(families):
+            available[family].append(index)
+        order: List[int] = []
+        for family in pattern:
+            indexes = available.get(family)
+            if not indexes:
+                return None
+            order.append(indexes.pop(0))
+        if len(set(order)) != len(tokens):
+            return None
+
+        source_pattern = "-".join(families)
+        target_pattern = "-".join(pattern)
+        example = self._sentence_pattern_examples.get(pattern, "")
+        arranged: List[Dict[str, Any]] = []
+        for output_position, source_index in enumerate(order):
+            token = tokens[source_index]
+            token["source_position"] = source_index
+            token["reordered_position"] = output_position
+            token["alician_order_pattern"] = target_pattern
+            token["sentence_pattern_source"] = source_pattern
+            token["sentence_pattern_example"] = example
+            token["sentence_pattern_count"] = count
+            token["sentence_pattern_confidence"] = round(confidence, 4)
+            token["order_method"] = "database_sentence_pattern"
+            token["note"] = (
+                f"按数据库范式 {target_pattern} 重排（{count} 条实例，"
+                f"置信度 {confidence:.0%}；例句：{example}）。"
+            )
+            arranged.append(token)
+        return arranged
+
+    def _dominant_sentence_pattern(
+        self, families: List[str],
+    ) -> Optional[Tuple[Tuple[str, ...], int, float]]:
+        candidates = self._sentence_patterns.get(self._pattern_signature(families))
+        if not candidates:
+            return None
+        ranked = candidates.most_common(2)
+        pattern, count = ranked[0]
+        total = sum(candidates.values())
+        runner_up = ranked[1][1] if len(ranked) > 1 else 0
+        confidence = count / total if total else 0.0
+        # Repeated corpus evidence is required.  For a divided signature, the
+        # winner must also have a useful lead so a valid alternative order is
+        # not overwritten by a near tie.
+        if count < 2 or (confidence < 0.5 and count - runner_up < 2):
+            return None
+        return pattern, count, confidence
+
+    def _core_pattern_evidence(self, families: List[str]) -> Optional[Tuple[int, float]]:
+        core = [family for family in families if family in {"n", "pron", "v"}]
+        candidates = self._core_sentence_patterns.get(self._pattern_signature(core))
+        if not candidates:
+            return None
+        count = max(candidates.values())
+        total = sum(candidates.values())
+        confidence = count / total if total else 0.0
+        if count < 2 or confidence < 0.4:
+            return None
+        return count, confidence
+
+    def _apply_chinese_pattern_senses(
+        self, tokens: List[Dict[str, Any]],
+    ) -> List[Dict[str, Any]]:
+        """Use attested sentence patterns to resolve ambiguous Chinese terms."""
+        if len(tokens) < 3 or len(tokens) > 8:
+            return tokens
+        option_rows: List[List[Optional[Dict[str, Any]]]] = []
+        for token in tokens:
+            source = str(token.get("source") or "")
+            candidates = self._term_candidates.get(source) or []
+            current_family = self._pos_family(str(token.get("word_class") or ""))
+            if (
+                token.get("status") != "exact" or not candidates
+                or current_family in {"pron", "art", "prep", "conj", "interj", "num"}
+                or token.get("method") == "grammar_function"
+            ):
+                option_rows.append([None])
+                continue
+            by_family: Dict[str, Dict[str, Any]] = {}
+            for entry in candidates:
+                family = self._pos_family(entry.get("word_class", ""))
+                current = by_family.get(family)
+                if current is None or self._sense_base_score(entry) > self._sense_base_score(current):
+                    by_family[family] = entry
+            option_rows.append(list(by_family.values())[:4] or [None])
+
+        beams: List[Tuple[float, List[Optional[Dict[str, Any]]], List[str]]] = [(0.0, [], [])]
+        for token, options in zip(tokens, option_rows):
+            expanded: List[Tuple[float, List[Optional[Dict[str, Any]]], List[str]]] = []
+            for score, selected, families in beams:
+                for entry in options:
+                    if entry is None:
+                        family = self._pos_family(str(token.get("word_class") or ""))
+                        entry_score = 0.0
+                    else:
+                        family = self._pos_family(entry.get("word_class", ""))
+                        entry_score = self._sense_base_score(entry) * 0.25
+                    expanded.append((score + entry_score, selected + [entry], families + [family]))
+            beams = sorted(expanded, key=lambda item: item[0], reverse=True)[:128]
+
+        best: Optional[Tuple[float, List[Optional[Dict[str, Any]]], List[str]]] = None
+        for base_score, selected, families in beams:
+            if families.count("v") != 1 or not any(
+                family in {"n", "pron"} for family in families
+            ):
+                continue
+            match = self._dominant_sentence_pattern(families)
+            if match is not None:
+                _, count, confidence = match
+            else:
+                core_match = self._core_pattern_evidence(families)
+                if core_match is None:
+                    continue
+                count, confidence = core_match
+            score = base_score + math.log1p(count) + confidence * 2.0
+            if best is None or score > best[0]:
+                best = (score, selected, families)
+        if best is None:
+            return tokens
+
+        _, selected, _ = best
+        resolved: List[Dict[str, Any]] = []
+        for token, entry in zip(tokens, selected):
+            if entry is None or (
+                token.get("target") == entry.get("target")
+                and token.get("word_class") == entry.get("word_class")
+            ):
+                resolved.append(token)
+                continue
+            replacement = self._entry_to_token(str(token.get("source") or ""), entry, "exact")
+            alternatives = self._term_candidates.get(str(token.get("source") or "")) or []
+            replacement["alternatives"] = [self._alternative(item, 1.0 if item is entry else 0.0) for item in alternatives]
+            replacement["method"] = "sentence_pattern_sense"
+            replacement["note"] = "已依据数据库句子范式选择当前词性和义项。"
+            resolved.append(replacement)
+        return resolved
+
     def _arrange_chinese_clause(self, clause: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         semantic = [token for token in clause if token.get("status") != "space"]
         if not semantic:
             return clause
+        semantic = self._apply_chinese_pattern_senses(semantic)
         semantic = self._arrange_chinese_possessives(semantic)
         families = [self._pos_family(str(token.get("word_class") or "")) for token in semantic]
+        attested = self._arrange_by_attested_pattern(semantic, families)
+        if attested is not None:
+            return attested
         grammar_sources = {"不", "没", "没有", "将", "将要"}
         verb_indexes = [
             index for index, family in enumerate(families)
@@ -889,6 +1095,17 @@ class TranslationService:
             return clause
 
         families = [self._syntax_family(token) for token in semantic]
+        pattern = tuple(families)
+        attested_count = self._sentence_patterns.get(
+            self._pattern_signature(families), Counter()
+        ).get(pattern, 0)
+        if attested_count:
+            example = self._sentence_pattern_examples.get(pattern, "")
+            for token in semantic:
+                token["matched_sentence_pattern"] = "-".join(pattern)
+                token["sentence_pattern_example"] = example
+                token["sentence_pattern_count"] = attested_count
+                token["parse_method"] = "database_sentence_pattern"
         verb_indexes = [index for index, family in enumerate(families) if family == "v"]
         if len(verb_indexes) != 1:
             return clause
