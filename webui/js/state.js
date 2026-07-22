@@ -31,7 +31,7 @@ var IS_NATIVE_DETACHED = WINDOW_PARAMS.get("window") === "detached" && DETACHABL
 var state = {
   isNativeDetached: IS_NATIVE_DETACHED,
   nativeAppId: IS_NATIVE_DETACHED ? NATIVE_APP_ID : null,
-  features: { lite: false, translator: true, fuzzy_search: true },
+  features: { lite: false, translator: true, fuzzy_search: true, semantic_search: true },
   activeDocked: "dictionary",
   zIndexSeed: 30,
   dragTabAppId: null,
@@ -61,7 +61,10 @@ var state = {
     direction: "zh_to_alician", lastResult: null, isBusy: false,
     tokenOrder: [], draggedTokenIndex: null,
   },
-  settings: { alicFont: false, alicHoverEnabled: true, alicHoverDelay: 300 },
+  settings: {
+    alicFont: false, alicHoverEnabled: true, alicHoverDelay: 300,
+    modelPath: "", modelAvailable: false, modelStatus: "",
+  },
 };
 
 var els = {};

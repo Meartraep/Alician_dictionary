@@ -302,7 +302,12 @@ class UnifiedAPI:
 
     def app_get_settings(self) -> Dict[str, Any]:
         if self._app_settings is None:
-            return {"auto_update": True, "auto_update_status": "", "alic_font": False, "alic_hover_enabled": True, "alic_hover_delay": 300, "update_check_status": "就绪"}
+            return {
+                "auto_update": True, "auto_update_status": "", "alic_font": False,
+                "alic_hover_enabled": True, "alic_hover_delay": 300,
+                "update_check_status": "就绪", "model_path": "",
+                "model_available": False, "model_status": "模型设置不可用。",
+            }
         public = self._app_settings.get_public_settings()
         return public
 
@@ -322,6 +327,60 @@ class UnifiedAPI:
         self._app_settings.save()
         public = self._app_settings.get_public_settings()
         return {"ok": True, "message": "设置已保存。", "settings": public}
+
+    def app_choose_model_directory(self) -> Dict[str, Any]:
+        if not self._features.get("semantic_search", False):
+            return {"ok": False, "message": "Lite 版不使用语义模型。"}
+        if self._app_settings is None:
+            return {"ok": False, "message": "设置管理器不可用。"}
+
+        from model_manager import (
+            MODEL_ENVIRONMENT_VARIABLE,
+            normalize_model_path,
+            set_registered_model_path,
+            validate_model_path,
+        )
+
+        current_path = normalize_model_path(
+            self._app_settings.settings.get("model_path", "")
+        )
+        initial_dir = current_path if os.path.isdir(current_path) else str(Path.home())
+        root = tk.Tk()
+        root.withdraw()
+        try:
+            root.attributes("-topmost", True)
+        except Exception:
+            pass
+        try:
+            selected_path = filedialog.askdirectory(
+                title="选择 text2vec 模型目录",
+                initialdir=initial_dir,
+                mustexist=True,
+            )
+        finally:
+            root.destroy()
+
+        if not selected_path:
+            return {"ok": False, "cancelled": True, "message": "已取消选择。"}
+        status = validate_model_path(selected_path, verify_hashes=True)
+        if not status["ok"]:
+            return {
+                "ok": False,
+                "message": status["message"],
+                "settings": self.app_get_settings(),
+            }
+
+        normalized_path = status["path"]
+        self._app_settings.set_model_path(normalized_path)
+        set_registered_model_path(normalized_path)
+        os.environ[MODEL_ENVIRONMENT_VARIABLE] = normalized_path
+        public = self._app_settings.get_public_settings()
+        return {
+            "ok": True,
+            "restart_required": True,
+            "message": "模型目录已保存，重启程序后生效。",
+            "settings": public,
+        }
 
     def app_force_download_update(self) -> Dict[str, Any]:
         if self._update_checker is None:

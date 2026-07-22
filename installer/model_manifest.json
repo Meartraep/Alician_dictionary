@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "model": "shibing624/text2vec-base-chinese",
+  "revision": "183bb99aa7af74355fb58d16edf8c13ae7c5433e",
+  "source": "https://huggingface.co/shibing624/text2vec-base-chinese",
+  "license": "Apache-2.0",
+  "files": {
+    "config.json": {
+      "size": 856,
+      "sha256": "fdf4d96b74a9e2dc8ae752d74bcfbbf8b3a754b3d97412477f8768ef65a7db36"
+    },
+    "model.safetensors": {
+      "size": 409098104,
+      "sha256": "0c855515479137398ce4ea985628548d4e8ed8c5764656dac966d6a24f39e721"
+    },
+    "special_tokens_map.json": {
+      "size": 112,
+      "sha256": "303df45a03609e4ead04bc3dc1536d0ab19b5358db685b6f3da123d05ec200e3"
+    },
+    "tokenizer_config.json": {
+      "size": 319,
+      "sha256": "3da14b28cdfd6bcb24aef5e16a37c868bc6e8428b4180833d5e0ef9cc19931df"
+    },
+    "vocab.txt": {
+      "size": 109540,
+      "sha256": "45bbac6b341c319adc98a532532882e91a9cefc0329aa57bac9ae761c27b291c"
+    }
+  }
+}

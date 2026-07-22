@@ -88,6 +88,11 @@ if getattr(sys, 'frozen', False) and len(sys.argv) > 1:
 sys.path.insert(0, str(APP_ROOT))
 
 from app_settings import AppSettings
+from model_manager import (
+    configure_model_environment,
+    get_registered_model_path,
+    default_model_path,
+)
 from unified_webui import launch_unified_webui
 
 DATA_DIR_NAME = "Alician_Data"
@@ -139,7 +144,24 @@ def main(
     from scripts.migrate_dictionary_senses import migrate as migrate_dictionary_senses
 
     migrate_dictionary_senses(local_db_path, backup=True)
-    app_settings = AppSettings(data_root / "app_settings.json", local_db_path)
+    registered_model_path = ""
+    configured_model_path = ""
+    if is_frozen:
+        registered_model_path = get_registered_model_path()
+        configured_model_path = registered_model_path or default_model_path()
+    app_settings = AppSettings(
+        data_root / "app_settings.json",
+        local_db_path,
+        default_model_path=configured_model_path,
+        prefer_default_model_path=bool(registered_model_path),
+    )
+
+    if is_frozen:
+        model_path = configure_model_environment(
+            app_settings.settings.get("model_path", "")
+        )
+        app_settings.settings["model_path"] = model_path
+        app_settings.save()
 
     app_settings.db_path = local_db_path
     os.environ["ALICIAN_DB_PATH"] = str(local_db_path)

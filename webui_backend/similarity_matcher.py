@@ -55,7 +55,7 @@ _NP: Any = None
 
 def _model_path() -> str:
     configured_path = os.environ.get(_MODEL_PATH_ENV, "").strip()
-    if configured_path and os.path.isdir(configured_path):
+    if configured_path:
         return configured_path
 
     if getattr(sys, "frozen", False):
@@ -63,6 +63,14 @@ def _model_path() -> str:
         bundled_path = os.path.join(resource_root, _BUNDLED_MODEL_DIR)
         if os.path.isfile(os.path.join(bundled_path, "config.json")):
             return bundled_path
+
+        # Installed Full builds deliberately keep model weights outside the
+        # program executable. Returning the configured location makes a
+        # missing/incomplete model fail offline instead of fetching 400 MB
+        # unexpectedly during normal application use.
+        from model_manager import default_model_path
+
+        return default_model_path()
 
     return _MODEL_NAME
 

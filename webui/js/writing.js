@@ -277,10 +277,19 @@ function applyAppSettings(settings) {
   state.settings.alicHoverDelay = settings?.alic_hover_delay != null && Number.isFinite(hoverDelay)
     ? clamp(hoverDelay, 0, 1000)
     : 300;
+  state.settings.modelPath = String(settings?.model_path || "");
+  state.settings.modelAvailable = Boolean(settings?.model_available);
+  state.settings.modelStatus = String(settings?.model_status || "");
   if (els.alicFontToggle) els.alicFontToggle.checked = state.settings.alicFont;
   if (els.alicHoverToggle) els.alicHoverToggle.checked = state.settings.alicHoverEnabled;
   if (els.alicHoverDelaySlider) els.alicHoverDelaySlider.value = state.settings.alicHoverDelay;
   if (els.alicHoverDelayLabel) els.alicHoverDelayLabel.textContent = state.settings.alicHoverDelay + " ms";
+  if (els.modelPathValue) els.modelPathValue.textContent = state.settings.modelPath || "尚未设置";
+  if (els.modelPathStatus) {
+    els.modelPathStatus.textContent = state.settings.modelStatus || "尚未检测模型。";
+    els.modelPathStatus.classList.toggle("model-status-ok", state.settings.modelAvailable);
+    els.modelPathStatus.classList.toggle("model-status-error", !state.settings.modelAvailable);
+  }
   if (els.updateCheckStatus) els.updateCheckStatus.textContent = String(settings?.update_check_status || "就绪");
   if (els.forceDownloadBtn) {
     var showBtn = String(settings?.update_check_status || "") === "云端版本未变化，无需下载";
@@ -648,6 +657,22 @@ function bindWritingEvents() {
 }
 
 function bindAppSettingsEvents() {
+  if (els.chooseModelPathBtn) {
+    els.chooseModelPathBtn.addEventListener("click", async function () {
+      els.chooseModelPathBtn.disabled = true;
+      try {
+        var ret = await callApi("app_choose_model_directory");
+        if (ret?.settings) applyAppSettings(ret.settings);
+        if (!ret?.cancelled) {
+          toast(ret?.message || "模型目录设置完成。", ret?.ok ? "info" : "warn", 5000);
+        }
+      } catch (err) {
+        toast("选择模型目录失败：" + err.message, "warn", 5000);
+      } finally {
+        els.chooseModelPathBtn.disabled = false;
+      }
+    });
+  }
   els.checkUpdateBtn.addEventListener("click", async function () {
     els.checkUpdateBtn.disabled = true;
     els.checkUpdateBtn.textContent = "检查中...";

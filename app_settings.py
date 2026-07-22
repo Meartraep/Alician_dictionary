@@ -9,7 +9,13 @@ from typing import Any, Dict
 
 
 class AppSettings:
-    def __init__(self, settings_path: Path, db_path: Path) -> None:
+    def __init__(
+        self,
+        settings_path: Path,
+        db_path: Path,
+        default_model_path: str = "",
+        prefer_default_model_path: bool = False,
+    ) -> None:
         self.settings_path = Path(settings_path)
         self.db_path = Path(db_path)
         self.default_settings: Dict[str, Any] = {
@@ -21,8 +27,15 @@ class AppSettings:
             "alic_hover_enabled": True,
             "alic_hover_delay": 300,
             "update_check_status": "就绪",
+            "model_path": str(default_model_path or ""),
         }
         self.settings = self._load()
+        current_model_path = str(self.settings.get("model_path") or "")
+        if default_model_path and (
+            prefer_default_model_path or not current_model_path
+        ):
+            self.settings["model_path"] = str(default_model_path)
+            self.save()
         self.detect_local_db_change()
 
     def _load(self) -> Dict[str, Any]:
@@ -80,7 +93,10 @@ class AppSettings:
         return False
 
     def get_public_settings(self) -> Dict[str, Any]:
+        from model_manager import validate_model_path
+
         self.detect_local_db_change()
+        model_status = validate_model_path(self.settings.get("model_path", ""))
         return {
             "auto_update": bool(self.settings.get("auto_update", True)),
             "auto_update_status": str(self.settings.get("auto_update_status") or ""),
@@ -88,7 +104,15 @@ class AppSettings:
             "alic_hover_enabled": bool(self.settings.get("alic_hover_enabled", True)),
             "alic_hover_delay": int(self.settings.get("alic_hover_delay", 300)),
             "update_check_status": str(self.settings.get("update_check_status") or "就绪"),
+            "model_path": str(self.settings.get("model_path") or ""),
+            "model_available": bool(model_status["ok"]),
+            "model_status": str(model_status["message"]),
         }
+
+    def set_model_path(self, path: str) -> Dict[str, Any]:
+        self.settings["model_path"] = str(path or "")
+        self.save()
+        return self.get_public_settings()
 
     def set_auto_update(self, enabled: bool) -> Dict[str, Any]:
         self.settings["auto_update"] = bool(enabled)

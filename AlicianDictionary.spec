@@ -1,16 +1,5 @@
 # -*- mode: python ; coding: utf-8 -*-
-from huggingface_hub import snapshot_download
 from PyInstaller.utils.hooks import collect_submodules
-
-
-TEXT2VEC_MODEL_NAME = 'shibing624/text2vec-base-chinese'
-try:
-    text2vec_model_dir = snapshot_download(TEXT2VEC_MODEL_NAME, local_files_only=True)
-except Exception as exc:
-    raise RuntimeError(
-        f'Full build requires a complete local cache of {TEXT2VEC_MODEL_NAME}. '
-        'Load/download the model once before running PyInstaller.'
-    ) from exc
 
 hiddenimports = [
     'db_update_dialog',
@@ -42,7 +31,9 @@ a = Analysis(
         ('AlicianRegular.ttf', '.'),
         ('alice_app.ico', '.'),
         ('alice.ico', '.'),
-        (text2vec_model_dir, 'text2vec_model'),
+        # Model weights are installed as a persistent external component.
+        # Keep the pinned model manifest inside the program for diagnostics.
+        ('installer/model_manifest.json', 'text2vec_model'),
     ],
     hiddenimports=hiddenimports,
     hookspath=[],

@@ -38,6 +38,9 @@ function applyFeatureFlags(features) {
     state.apps.translator.detached = true;
     if (state.activeDocked === "translator") state.activeDocked = "dictionary";
   }
+  if (els.modelStorageRow) {
+    els.modelStorageRow.classList.toggle("hidden", !state.features.semantic_search);
+  }
   if (els.dictExact) els.dictExact.disabled = false;
   if (els.writingDictExact) els.writingDictExact.disabled = false;
 }

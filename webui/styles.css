@@ -870,6 +870,24 @@ button.small {
   gap: 8px;
 }
 
+.model-storage-info {
+  min-width: 0;
+  flex: 1 1 520px;
+}
+
+.model-path-value {
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+
+.model-status-ok {
+  color: #267346;
+}
+
+.model-status-error {
+  color: #a33a35;
+}
+
 .floating-layer {
   position: absolute;
   inset: 0;

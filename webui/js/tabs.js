@@ -16,6 +16,7 @@ function bindBaseElements() {
     "translatorDetails", "translatorOrderList", "translatorStatus",
     "autoUpdateToggle", "alicFontToggle", "alicHoverToggle", "alicHoverDelaySlider", "alicHoverDelayLabel",
     "checkUpdateBtn", "updateCheckStatus", "forceDownloadBtn",
+    "modelStorageRow", "modelPathValue", "modelPathStatus", "chooseModelPathBtn",
     "dbmTableList", "dbmRefreshBtn", "dbmSearchInput", "dbmSearchExact", "dbmSearchBtn",
     "dbmShowAllBtn", "dbmGlobalToggleBtn", "dbmAddBtn", "dbmDeleteBtn",
     "dbmDiscardBtn", "dbmCommitBtn",

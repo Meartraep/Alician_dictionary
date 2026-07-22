@@ -1,35 +1,70 @@
-# Full 版本的 text2vec 运行时
+# Full 版运行时、模型与安装包
 
-`AlicianDictionaryFull.exe` 已内置 text2vec、PyTorch、Transformers、NumPy 及
-`shibing624/text2vec-base-chinese` 模型。目标设备不需要安装 Python、第三方库，
-也不需要预先下载 Hugging Face 模型。
+Full 版包含 text2vec、PyTorch、Transformers 和 NumPy 等程序运行库，但模型权重不再
+打入 `AlicianDictionaryFull.exe`。程序更新与约 409 MB 的语义模型是两个独立组件。
 
-Lite 版本不包含这些组件，也不会启用语义相似词功能。
+## 面向用户的安装包
 
-## 开发与打包
+- `release\Full\AlicianDictionaryFullOnlineSetup.exe`
+  - 包含完整程序运行库。
+  - 首次安装时从 Hugging Face 的固定修订版本下载模型。
+  - 每个下载文件都进行 SHA-256 校验。
+- `release\Full\AlicianDictionaryFullOfflineSetup.exe`
+  - 包含完整程序运行库和模型，安装过程不需要网络。
+- 两种安装包都允许用户指定模型的实际存储文件夹。
+- 升级安装会复用注册表中保存的模型位置。模型文件完整时，在线版不下载、离线版不复制模型。
+- 卸载程序默认保留模型文件和用户数据，避免重新安装时丢失大文件或个人数据库。
 
-### 固定发布目录
+默认模型目录为：
 
-所有新构建的正式包只能输出到项目根目录下的以下两个目录：
-
-- Full：`release\Full\AlicianDictionaryFull.exe`
-- Lite：`release\Lite\AlicianDictionaryLite.exe`
-
-固定打包命令：
-
-```powershell
-python -m PyInstaller --noconfirm --clean --workpath release_build\full --distpath release\Full AlicianDictionary.spec
-python -m PyInstaller --noconfirm --clean --workpath release_build\lite --distpath release\Lite AlicianDictionaryLite.spec
+```text
+%LOCALAPPDATA%\AlicianDictionary\Models\text2vec-base-chinese
 ```
 
-`dist`、`packages` 及其中已有的 EXE 只视为历史构建，不得作为新版本交付位置，
-除非用户明确要求复制到这些目录。
+用户可以在安装向导中改为任意有写入权限的位置。安装后也可以在程序的“设置”页选择
+另一个已经包含完整模型的目录；重启程序后生效。
 
-Full 版本打包时，构建机必须已经完整缓存模型。`AlicianDictionary.spec` 会在
-构建开始时检查本地缓存，缺失时直接报错，避免生成一个表面成功但无法使用
-text2vec 的 Full EXE。
+## 模型版本
 
-如需在源码调试时覆盖默认模型位置，可设置：
+```text
+Model: shibing624/text2vec-base-chinese
+Revision: 183bb99aa7af74355fb58d16edf8c13ae7c5433e
+License: Apache-2.0
+```
+
+完整文件名、大小和 SHA-256 位于 `installer\model_manifest.json`，应用与构建脚本共同
+使用同一组固定元数据。离线安装会把模型来源说明、清单和 Apache-2.0 许可证一起安装
+到用户选择的模型目录。
+
+## 开发与构建
+
+所有当前发布产物只能写入以下固定目录：
+
+- Full 程序本体：`release\Full\AlicianDictionaryFull.exe`
+- Lite 程序本体：`release\Lite\AlicianDictionaryLite.exe`
+- Full 在线安装包：`release\Full\AlicianDictionaryFullOnlineSetup.exe`
+- Full 离线安装包：`release\Full\AlicianDictionaryFullOfflineSetup.exe`
+
+安装 Inno Setup 6.5 或更新版本后运行：
+
+```powershell
+.\scripts\build_full_installers.ps1 -AppVersion 26.7.22
+```
+
+脚本会：
+
+1. 使用各自独立的 `release_build\full` 与 `release_build\lite` 工作目录构建程序。
+2. 从本地 Hugging Face 缓存定位固定修订模型，并逐文件校验大小和 SHA-256。
+3. 生成在线与离线安装包。
+4. 输出两个程序本体和两个安装包的修改时间、大小与 SHA-256。
+
+如只修改安装脚本而不需要重新构建程序：
+
+```powershell
+.\scripts\build_full_installers.ps1 -AppVersion 26.7.22 -SkipProgramBuild
+```
+
+源码调试时仍可临时覆盖模型路径：
 
 ```powershell
 $env:ALICIAN_TEXT2VEC_MODEL_PATH = "D:\models\text2vec-base-chinese"

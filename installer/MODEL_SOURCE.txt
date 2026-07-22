@@ -1,0 +1,11 @@
+Alician Dictionary Full semantic model
+======================================
+
+Model: shibing624/text2vec-base-chinese
+Pinned revision: 183bb99aa7af74355fb58d16edf8c13ae7c5433e
+Source: https://huggingface.co/shibing624/text2vec-base-chinese
+License: Apache License 2.0
+
+The model is distributed as an independent component. Alician Dictionary
+program updates do not replace or download it again while the installed model
+passes the version, size, and integrity checks.
